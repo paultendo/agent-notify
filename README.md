@@ -65,6 +65,7 @@ Environment variables:
 - `CODEX_NOTIFY_EXEC_ONLY=0` uses `-activate`/`-sender` instead of execute-only activation.
 - `CODEX_NOTIFY_APP_ICON` sets a custom icon path or URL. Local paths are converted to `file://` URLs.
 - `CODEX_NOTIFY_DEBUG=1` keeps `terminal-notifier` output and error details for troubleshooting.
+- `CODEX_NOTIFY_EXEC_CMD` overrides the execute command (default is `open -b <bundle_id>`).
 
 Example (louder sound):
 
@@ -97,8 +98,10 @@ If your sound path or name contains spaces, quote it in your shell.
 - Click does not activate VSCode: install `terminal-notifier` and verify `CODEX_ACTIVATE_BUNDLE`.
 - Icon looks like Terminal: expected when using execute-only activation.
 - Seeing a `terminal-notifier` usage banner: make sure your `notify` hook points to `codex-notify` and set `CODEX_NOTIFY_DEBUG=1` to inspect args.
+- Clicking “Show” opens Script Editor: set `CODEX_NOTIFY_EXEC_CMD="/usr/bin/open -b com.microsoft.VSCode"` to force `open` instead of AppleScript.
 
 ## Changelog
+- 0.1.8 - Use open(1) for execute activation by default.
 - 0.1.7 - Silence terminal-notifier output by default.
 - 0.1.6 - Clarify quoting for sound paths.
 - 0.1.5 - Add loud-sound example.

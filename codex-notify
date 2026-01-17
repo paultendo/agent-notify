@@ -12,6 +12,7 @@ sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
 suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
 exec_only="${CODEX_NOTIFY_EXEC_ONLY:-1}"
 app_icon="${CODEX_NOTIFY_APP_ICON:-}"
+exec_cmd="${CODEX_NOTIFY_EXEC_CMD:-}"
 
 if [[ -z "$app_icon" && "$activate_bundle" == "com.microsoft.VSCode" ]]; then
   default_icon="/Applications/Visual Studio Code.app/Contents/Resources/Code.icns"
@@ -47,6 +48,10 @@ if [[ -n "$sound" && "$sound" != */* ]]; then
       sound="$candidate"
     fi
   fi
+fi
+
+if [[ -z "$exec_cmd" && -n "$activate_bundle" ]]; then
+  exec_cmd="/usr/bin/open -b ${activate_bundle}"
 fi
 
 # Optional quiet mode: set CODEX_SILENT=1 to disable sound
@@ -165,7 +170,9 @@ if [[ -n "$tn_bin" ]]; then
   fi
   if [[ -n "$activate_bundle" ]]; then
     if [[ "$exec_only" != "0" ]]; then
-      tn_args+=(-execute "osascript -e 'tell application id \"${activate_bundle}\" to activate'")
+      if [[ -n "$exec_cmd" ]]; then
+        tn_args+=(-execute "$exec_cmd")
+      fi
     else
       tn_args+=(-activate "$activate_bundle")
     fi
