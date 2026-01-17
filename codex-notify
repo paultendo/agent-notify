@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+payload="${1:-}"
+title="Codex"
+msg="Task finished"
+subtitle=""
+group=""
+sound="/System/Library/Sounds/Glass.aiff"
+activate_bundle="${CODEX_ACTIVATE_BUNDLE:-com.microsoft.VSCode}"
+sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
+suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
+
+# Optional quiet mode: set CODEX_SILENT=1 to disable sound
+if [[ "${CODEX_SILENT:-}" == "1" ]]; then
+  sound=""
+fi
+
+if [[ "$suppress_frontmost" != "0" && -n "$activate_bundle" ]] && command -v osascript >/dev/null 2>&1; then
+  front_bundle="$(osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null || true)"
+  if [[ -n "$front_bundle" && "$front_bundle" == "$activate_bundle" ]]; then
+    exit 0
+  fi
+fi
+
+if [[ -n "$payload" && "$payload" == "{"* ]] && command -v python3 >/dev/null 2>&1; then
+  parsed=()
+  while IFS= read -r line; do
+    parsed+=("$line")
+  done < <(python3 - "$payload" <<'PY'
+import json, sys
+
+def clean(val: object) -> str:
+    s = "" if val is None else str(val)
+    return " ".join(s.split())
+
+def clip(s: str, limit: int) -> str:
+    s = clean(s)
+    return s if len(s) <= limit else s[: max(0, limit - 3) ] + "..."
+
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(1)
+
+event_type = clean(payload.get("type", ""))
+if event_type and event_type != "agent-turn-complete":
+    sys.exit(0)
+
+last = clean(payload.get("last-assistant-message", "")) or "Turn complete"
+title = f"Codex: {clip(last, 90)}"
+
+inputs = payload.get("input-messages", [])
+if isinstance(inputs, list):
+    parts = []
+    for item in inputs:
+        if isinstance(item, str):
+            parts.append(item)
+        else:
+            parts.append(json.dumps(item, ensure_ascii=True))
+    inputs_text = " / ".join(parts)
+else:
+    inputs_text = str(inputs)
+
+message = clip(inputs_text, 140) or "Turn complete"
+cwd = clip(payload.get("cwd", ""), 140)
+thread_id = clean(payload.get("thread-id", ""))
+group = f"codex-{thread_id}" if thread_id else ""
+
+print(title)
+print(message)
+print(cwd)
+print(group)
+PY
+  )
+  if [[ ${#parsed[@]} -eq 0 ]]; then
+    exit 0
+  fi
+  title="${parsed[0]:-Codex}"
+  msg="${parsed[1]:-Task finished}"
+  subtitle="${parsed[2]:-}"
+  group="${parsed[3]:-}"
+else
+  if [[ -z "$payload" || "$payload" != "{"* ]]; then
+    title="${1:-$title}"
+    msg="${2:-$msg}"
+    if [[ -n "${3:-}" ]]; then
+      sound="${3}"
+    fi
+  fi
+fi
+
+if command -v terminal-notifier >/dev/null 2>&1; then
+  tn_args=(-title "$title" -message "$msg")
+  if [[ -n "$subtitle" ]]; then
+    tn_args+=(-subtitle "$subtitle")
+  fi
+  if [[ -n "$group" ]]; then
+    tn_args+=(-group "$group")
+  fi
+  if [[ -n "$activate_bundle" ]]; then
+    tn_args+=(-activate "$activate_bundle")
+  fi
+  if [[ -n "$sender_bundle" ]]; then
+    tn_args+=(-sender "$sender_bundle")
+  fi
+  terminal-notifier "${tn_args[@]}" || echo "$title: $msg" >&2
+else
+  if [[ -n "$subtitle" ]]; then
+    msg="$msg - $subtitle"
+  fi
+  osascript -e "display notification \"$msg\" with title \"$title\"" \
+    || echo "$title: $msg" >&2
+fi
+
+if [[ -n "$sound" ]]; then
+  afplay "$sound" >/dev/null 2>&1 || true
+fi
