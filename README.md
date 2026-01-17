@@ -69,6 +69,18 @@ Environment variables:
 - If `terminal-notifier` is missing, the script falls back to `osascript`.
 - Without `python3`, the script falls back to a simple title/message.
 
+## FAQ
+- **Why does the icon show Terminal?** macOS often uses the sender app icon for notifications. Execute-only activation is more reliable but results in the Terminal icon.
+- **Why not always use `-sender` to show VSCode?** On some systems it breaks activation. This project defaults to reliability over icon fidelity.
+
+## Security
+- No network calls; all data stays local.
+- Payload is read from stdin/args and used only to build notification text.
+
+## Screenshot
+![Codex Notify](./assets/screenshot.png)
+Replace `./assets/screenshot.png` with your own screenshot if you'd like a real capture.
+
 ## Troubleshooting
 - No notification: check `~/.codex/config.toml` and macOS notification permissions.
 - No sound: check `CODEX_SILENT` and `/System/Library/Sounds/Glass.aiff`.
@@ -76,6 +88,7 @@ Environment variables:
 - Icon looks like Terminal: expected when using execute-only activation.
 
 ## Changelog
+- 0.1.2 - README polish, FAQ, security note, screenshot placeholder.
 - 0.1.1 - README polish and clarified defaults.
 - 0.1.0 - Initial release.
 
