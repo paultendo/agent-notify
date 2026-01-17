@@ -10,6 +10,31 @@ sound="/System/Library/Sounds/Glass.aiff"
 activate_bundle="${CODEX_ACTIVATE_BUNDLE:-com.microsoft.VSCode}"
 sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
 suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
+exec_only="${CODEX_NOTIFY_EXEC_ONLY:-1}"
+app_icon="${CODEX_NOTIFY_APP_ICON:-}"
+
+if [[ -z "$app_icon" && "$activate_bundle" == "com.microsoft.VSCode" ]]; then
+  default_icon="/Applications/Visual Studio Code.app/Contents/Resources/Code.icns"
+  if [[ -f "$default_icon" ]]; then
+    app_icon="$default_icon"
+  fi
+fi
+
+if [[ -n "$app_icon" && "$app_icon" != http* && "$app_icon" != file://* ]]; then
+  if [[ -f "$app_icon" ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+      app_icon="$(python3 - "$app_icon" <<'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).resolve().as_uri())
+PY
+)"
+    else
+      app_icon="file://$app_icon"
+    fi
+  fi
+fi
 
 # Optional quiet mode: set CODEX_SILENT=1 to disable sound
 if [[ "${CODEX_SILENT:-}" == "1" ]]; then
@@ -29,6 +54,7 @@ if [[ -n "$payload" && "$payload" == "{"* ]] && command -v python3 >/dev/null 2>
     parsed+=("$line")
   done < <(python3 - "$payload" <<'PY'
 import json, sys
+import os
 
 def clean(val: object) -> str:
     s = "" if val is None else str(val)
@@ -44,7 +70,11 @@ except Exception:
     sys.exit(1)
 
 event_type = clean(payload.get("type", ""))
-if event_type and event_type != "agent-turn-complete":
+allow_env = os.environ.get("CODEX_NOTIFY_EVENT_TYPES", "agent-turn-complete")
+allowed = [s.strip() for s in allow_env.split(",") if s.strip()]
+if not allowed:
+    allowed = ["agent-turn-complete"]
+if allowed != ["*"] and event_type and event_type not in allowed:
     sys.exit(0)
 
 last = clean(payload.get("last-assistant-message", "")) or "Turn complete"
@@ -90,7 +120,17 @@ else
   fi
 fi
 
-if command -v terminal-notifier >/dev/null 2>&1; then
+tn_bin="$(command -v terminal-notifier 2>/dev/null || true)"
+if [[ -z "$tn_bin" ]]; then
+  for candidate in /opt/homebrew/bin/terminal-notifier /usr/local/bin/terminal-notifier; do
+    if [[ -x "$candidate" ]]; then
+      tn_bin="$candidate"
+      break
+    fi
+  done
+fi
+
+if [[ -n "$tn_bin" ]]; then
   tn_args=(-title "$title" -message "$msg")
   if [[ -n "$subtitle" ]]; then
     tn_args+=(-subtitle "$subtitle")
@@ -98,13 +138,20 @@ if command -v terminal-notifier >/dev/null 2>&1; then
   if [[ -n "$group" ]]; then
     tn_args+=(-group "$group")
   fi
-  if [[ -n "$activate_bundle" ]]; then
-    tn_args+=(-activate "$activate_bundle")
+  if [[ -n "$app_icon" ]]; then
+    tn_args+=(-appIcon "$app_icon")
   fi
-  if [[ -n "$sender_bundle" ]]; then
+  if [[ -n "$activate_bundle" ]]; then
+    if [[ "$exec_only" != "0" ]]; then
+      tn_args+=(-execute "osascript -e 'tell application id \"${activate_bundle}\" to activate'")
+    else
+      tn_args+=(-activate "$activate_bundle")
+    fi
+  fi
+  if [[ "$exec_only" == "0" && -n "$sender_bundle" ]]; then
     tn_args+=(-sender "$sender_bundle")
   fi
-  terminal-notifier "${tn_args[@]}" || echo "$title: $msg" >&2
+  "$tn_bin" "${tn_args[@]}" || echo "$title: $msg" >&2
 else
   if [[ -n "$subtitle" ]]; then
     msg="$msg - $subtitle"
