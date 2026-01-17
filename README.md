@@ -65,6 +65,12 @@ Environment variables:
 - `CODEX_NOTIFY_EXEC_ONLY=0` uses `-activate`/`-sender` instead of execute-only activation.
 - `CODEX_NOTIFY_APP_ICON` sets a custom icon path or URL. Local paths are converted to `file://` URLs.
 
+Example (louder sound):
+
+```bash
+export CODEX_NOTIFY_SOUND="Funk"
+```
+
 ## Notes
 - Some macOS versions ignore `-appIcon` and use the sender app icon instead.
 - Execute-only activation is the most reliable path; it may show the Terminal icon.
@@ -89,6 +95,7 @@ Environment variables:
 - Icon looks like Terminal: expected when using execute-only activation.
 
 ## Changelog
+- 0.1.5 - Add loud-sound example.
 - 0.1.4 - Add real screenshot.
 - 0.1.3 - Custom sound support and README tweaks.
 - 0.1.2 - README polish, FAQ, security note, screenshot placeholder.
