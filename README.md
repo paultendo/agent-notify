@@ -1,6 +1,6 @@
 # Codex Notify
 
-macOS notifications for Codex with reliable VSCode activation.
+macOS notifications for Codex with reliable VSCode activation. (macOS-only.)
 
 [![shellcheck](https://github.com/paultendo/codex-notify/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/paultendo/codex-notify/actions/workflows/shellcheck.yml)
 [![release](https://img.shields.io/github/v/release/paultendo/codex-notify)](https://github.com/paultendo/codex-notify/releases/latest)
@@ -32,6 +32,7 @@ Restart Codex and run a quick task to verify notifications.
 - Clean, grouped notifications per Codex thread.
 - Rich titles/messages from Codex JSON payloads.
 - Click to activate VSCode (execute-only by default for reliability).
+- Custom completion sounds for audible alerts.
 - Fallback to `osascript` if `terminal-notifier` is missing.
 
 ## Requirements
@@ -56,6 +57,7 @@ codex-notify '{"type":"agent-turn-complete","last-assistant-message":"All set","
 Environment variables:
 - `CODEX_NOTIFY_BIN_DIR` sets the install destination (default `~/bin`).
 - `CODEX_SILENT=1` disables the sound.
+- `CODEX_NOTIFY_SOUND` sets a custom sound (path or system sound name like `Glass`).
 - `CODEX_ACTIVATE_BUNDLE` sets which app is activated on click (default `com.microsoft.VSCode`).
 - `CODEX_SENDER_BUNDLE` sets the sender icon/name when using `-activate` (default `com.microsoft.VSCode`).
 - `CODEX_SUPPRESS_FRONTMOST=0` disables suppression when the target app is already frontmost.
@@ -83,11 +85,12 @@ Replace `./assets/screenshot.png` with your own screenshot if you'd like a real 
 
 ## Troubleshooting
 - No notification: check `~/.codex/config.toml` and macOS notification permissions.
-- No sound: check `CODEX_SILENT` and `/System/Library/Sounds/Glass.aiff`.
+- No sound: check `CODEX_SILENT` and `CODEX_NOTIFY_SOUND` (path or system sound name).
 - Click does not activate VSCode: install `terminal-notifier` and verify `CODEX_ACTIVATE_BUNDLE`.
 - Icon looks like Terminal: expected when using execute-only activation.
 
 ## Changelog
+- 0.1.3 - Custom sound support and README tweaks.
 - 0.1.2 - README polish, FAQ, security note, screenshot placeholder.
 - 0.1.1 - README polish and clarified defaults.
 - 0.1.0 - Initial release.

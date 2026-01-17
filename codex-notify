@@ -6,7 +6,7 @@ title="Codex"
 msg="Task finished"
 subtitle=""
 group=""
-sound="/System/Library/Sounds/Glass.aiff"
+sound="${CODEX_NOTIFY_SOUND:-/System/Library/Sounds/Glass.aiff}"
 activate_bundle="${CODEX_ACTIVATE_BUNDLE:-com.microsoft.VSCode}"
 sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
 suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
@@ -32,6 +32,19 @@ PY
 )"
     else
       app_icon="file://$app_icon"
+    fi
+  fi
+fi
+
+# Allow a bare sound name like "Glass" to map to the system sounds folder.
+if [[ -n "$sound" && "$sound" != */* ]]; then
+  candidate="/System/Library/Sounds/${sound}"
+  if [[ -f "$candidate" ]]; then
+    sound="$candidate"
+  else
+    candidate="/System/Library/Sounds/${sound}.aiff"
+    if [[ -f "$candidate" ]]; then
+      sound="$candidate"
     fi
   fi
 fi
