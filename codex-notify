@@ -143,6 +143,15 @@ if [[ -z "$tn_bin" ]]; then
   done
 fi
 
+notify_fallback() {
+  local fallback_msg="$msg"
+  if [[ -n "$subtitle" ]]; then
+    fallback_msg="$msg - $subtitle"
+  fi
+  osascript -e "display notification \"$fallback_msg\" with title \"$title\"" \
+    || echo "$title: $fallback_msg" >&2
+}
+
 if [[ -n "$tn_bin" ]]; then
   tn_args=(-title "$title" -message "$msg")
   if [[ -n "$subtitle" ]]; then
@@ -164,13 +173,20 @@ if [[ -n "$tn_bin" ]]; then
   if [[ "$exec_only" == "0" && -n "$sender_bundle" ]]; then
     tn_args+=(-sender "$sender_bundle")
   fi
-  "$tn_bin" "${tn_args[@]}" || echo "$title: $msg" >&2
-else
-  if [[ -n "$subtitle" ]]; then
-    msg="$msg - $subtitle"
+  tn_rc=0
+  if [[ "${CODEX_NOTIFY_DEBUG:-}" == "1" ]]; then
+    "$tn_bin" "${tn_args[@]}" || tn_rc=$?
+  else
+    "$tn_bin" "${tn_args[@]}" >/dev/null 2>&1 || tn_rc=$?
   fi
-  osascript -e "display notification \"$msg\" with title \"$title\"" \
-    || echo "$title: $msg" >&2
+  if [[ $tn_rc -ne 0 ]]; then
+    if [[ "${CODEX_NOTIFY_DEBUG:-}" == "1" ]]; then
+      echo "$title: $msg" >&2
+    fi
+    notify_fallback
+  fi
+else
+  notify_fallback
 fi
 
 if [[ -n "$sound" ]]; then
