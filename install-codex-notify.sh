@@ -15,7 +15,18 @@ mkdir -p "$dest_dir"
 cp "$src" "$dest"
 chmod +x "$dest"
 
+if [[ -f "$script_dir/VERSION" ]]; then
+  ver="$(cat "$script_dir/VERSION")"
+  sed -i '' "s/^VERSION=.*/VERSION=\"$ver\"/" "$dest"
+fi
+
 echo "Installed: $dest"
-echo "Add to ~/.codex/config.toml:"
-echo "notify = [\"$dest\"]"
+
+echo ""
+echo "Quick setup (writes config automatically):"
+echo "  $dest --setup"
+echo ""
+echo "Or add manually to ~/.codex/config.toml:"
+echo "  notify = [\"$dest\"]"
+echo ""
 echo "Optional: brew install terminal-notifier"
