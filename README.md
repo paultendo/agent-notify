@@ -1,56 +1,74 @@
-# Codex Notify
+# Agent Notify
 
-macOS notifications for OpenAI Codex — works with the CLI, VS Code extension, and Codex macOS app.
+Cross-platform desktop notifications for AI coding agents — Codex CLI, Claude Code, and Gemini CLI.
 
-[![shellcheck](https://github.com/paultendo/codex-notify/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/paultendo/codex-notify/actions/workflows/shellcheck.yml)
-[![release](https://img.shields.io/github/v/release/paultendo/codex-notify)](https://github.com/paultendo/codex-notify/releases/latest)
+[![shellcheck](https://github.com/paultendo/agent-notify/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/paultendo/agent-notify/actions/workflows/shellcheck.yml)
+[![release](https://img.shields.io/github/v/release/paultendo/agent-notify)](https://github.com/paultendo/agent-notify/releases/latest)
 
 ## Quick start
 
-### Option A: Homebrew
+### Option A: Homebrew (macOS)
 
 ```bash
-brew tap paultendo/codex-notify https://github.com/paultendo/codex-notify
-brew install codex-notify
-codex-notify --setup
+brew tap paultendo/agent-notify https://github.com/paultendo/agent-notify
+brew install agent-notify
+agent-notify --setup
 ```
 
-### Option B: Manual install
+### Option B: Manual install (macOS / Linux / Windows WSL)
+
 1) Clone or download the repo, then run the installer:
 
 ```bash
-chmod +x ./install-codex-notify.sh
-./install-codex-notify.sh
+chmod +x ./install-agent-notify.sh
+./install-agent-notify.sh
 ```
 
-2) Configure the notify hook (automatic):
+2) Configure your agents (automatic):
 
 ```bash
-codex-notify --setup
+agent-notify --setup           # configure all detected agents
 ```
 
-Or add manually to `~/.codex/config.toml`:
-
-```toml
-notify = ["/Users/yourname/bin/codex-notify"]
-```
-
-3) Optional but recommended:
+Or configure individually:
 
 ```bash
+agent-notify --setup-codex     # Codex CLI → ~/.codex/config.toml
+agent-notify --setup-claude    # Claude Code → ~/.claude/settings.json
+agent-notify --setup-gemini    # Gemini CLI → ~/.gemini/settings.json
+```
+
+3) Platform recommendations:
+
+```bash
+# macOS
 brew install terminal-notifier
+
+# Linux (Debian/Ubuntu)
+sudo apt install libnotify-bin   # notify-send
+sudo apt install espeak          # optional TTS
+
+# Linux (Fedora)
+sudo dnf install libnotify       # notify-send
+sudo dnf install espeak-ng       # optional TTS
 ```
 
-Restart Codex and run a quick task to verify notifications.
+Restart your agent and run a task to verify notifications.
 
 ## Features
+- **Multi-agent** — Codex CLI, Claude Code, and Gemini CLI out of the box.
+- **Cross-platform** — macOS, Linux, and Windows (WSL / Git Bash).
 - Different sounds for completion vs. approval/input-needed events.
-- Clean, grouped notifications per Codex thread.
-- Rich titles/messages from Codex JSON payloads.
+- Clean, grouped notifications per session/thread.
+- Rich titles/messages extracted from agent JSON payloads.
 - Terminal echo: prints a summary line to stderr for logging/visibility.
-- Click to activate VSCode (execute-only by default for reliability). Auto-detects the Codex macOS app and activates it instead when appropriate.
-- `--setup` flag for zero-friction config.toml setup.
-- TTS (text-to-speech) via macOS `say` for audible status when away from desk.
+- **Terminal bell** — automatic fallback for headless/SSH sessions.
+- **Duration display** — shows how long the task took.
+- **Long-run threshold** — only notify if task exceeded N seconds.
+- **Per-project config** — `.agent-notify.env` overrides per repo.
+- Click to activate your editor (macOS: execute-only by default). Auto-detects the Codex macOS app.
+- `--setup` flag for zero-friction config across all agents.
+- TTS (text-to-speech) via macOS `say`, Linux `espeak`/`spd-say`, or Windows SAPI.
 - Webhook support for remote notifications (Discord, Slack, etc.).
 - Do Not Disturb / Focus awareness — skip notifications when Focus mode is active.
 - Schedule window — only notify during configured hours.
@@ -59,102 +77,137 @@ Restart Codex and run a quick task to verify notifications.
 - Custom hooks — run any command on notification events.
 - Self-update via `--update`.
 - Homebrew installable.
-- Fallback to `osascript` if `terminal-notifier` is missing.
+- macOS: fallback to `osascript` if `terminal-notifier` is missing.
+- Linux: fallback chain `notify-send` → `zenity` → terminal echo.
+- Windows: PowerShell toast notifications via WSL/Git Bash.
 
 ## Compatibility
-Works with all Codex clients that support the `notify` hook in `~/.codex/config.toml`:
-- **Codex CLI** — terminal-based usage.
-- **Codex VS Code extension** — notifications fire and clicking activates VS Code.
-- **Codex macOS app** — auto-detected; clicking the notification activates the Codex app instead of VS Code.
+
+### Agents
+| Agent | Hook type | Config file | Events |
+|-------|-----------|-------------|--------|
+| **Codex CLI** | argv JSON | `~/.codex/config.toml` | `agent-turn-complete`, `approval-required` |
+| **Claude Code** | stdin JSON | `~/.claude/settings.json` | `Stop`, `Notification` (permission, idle, auth) |
+| **Gemini CLI** | stdin JSON | `~/.gemini/settings.json` | `AfterAgent`, `Notification` (tool permission) |
+
+### Platforms
+| Platform | Notification | Sound | TTS |
+|----------|-------------|-------|-----|
+| **macOS** | terminal-notifier / osascript | afplay | say |
+| **Linux** | notify-send / zenity | paplay / aplay / ffplay | espeak / spd-say |
+| **Windows** (WSL) | PowerShell toast | PowerShell SoundPlayer | PowerShell SAPI |
 
 ## Requirements
-- macOS (Notification Center + `osascript`).
-- `python3` for JSON payload parsing.
-- `terminal-notifier` optional but recommended for activation and grouping.
+- `bash` 4.0+ (macOS, Linux, WSL, or Git Bash).
+- `python3` for JSON payload parsing and agent setup.
+- **macOS**: `terminal-notifier` optional but recommended.
+- **Linux**: `libnotify` (`notify-send`) recommended.
 
 ## Usage
+
 Manual invocation (title/message):
 
 ```bash
-codex-notify "Codex" "Task finished"
+agent-notify "Codex" "Task finished"
 ```
 
-Manual invocation (JSON payload):
+Manual invocation (Codex JSON payload):
 
 ```bash
-codex-notify '{"type":"agent-turn-complete","last-assistant-message":"All set","input-messages":["ping"],"cwd":"/tmp","thread-id":"demo"}'
+agent-notify '{"type":"agent-turn-complete","last-assistant-message":"All set","input-messages":["ping"],"cwd":"/tmp","thread-id":"demo"}'
 ```
 
-Test your setup:
+Test notifications:
 
 ```bash
-codex-notify --test              # completion sound (Glass)
-codex-notify --test-approval     # approval sound (Sosumi)
-codex-notify --test-say          # completion with TTS
-codex-notify --update            # update to latest release
+agent-notify --test                  # Codex completion
+agent-notify --test-approval         # Codex approval (Sosumi)
+agent-notify --test-claude           # Claude Code completion
+agent-notify --test-claude-approval  # Claude Code permission prompt
+agent-notify --test-gemini           # Gemini CLI completion
+agent-notify --test-say              # completion with TTS
+agent-notify --test-bell             # terminal bell
+agent-notify --update                # update to latest release
 ```
 
 ## Configuration
-Environment variables:
-- `CODEX_NOTIFY_BIN_DIR` sets the install destination (default `~/bin`).
-- `CODEX_SILENT=1` disables all sounds.
-- `CODEX_NOTIFY_QUIET=1` suppresses the terminal echo line (on by default).
-- `CODEX_NOTIFY_SOUND` sets the completion sound (path or system sound name, default `Glass`).
-- `CODEX_NOTIFY_APPROVAL_SOUND` sets the approval/input-needed sound (default `Sosumi`).
-- `CODEX_ACTIVATE_BUNDLE` sets which app is activated on click (default `com.microsoft.VSCode`).
-- `CODEX_SENDER_BUNDLE` sets the sender icon/name when using `-activate` (default `com.microsoft.VSCode`).
-- `CODEX_SUPPRESS_FRONTMOST=0` disables suppression when the target app is already frontmost.
-- `CODEX_NOTIFY_EVENT_TYPES` limits which event types notify (comma-separated, default `*` = all events).
-- `CODEX_NOTIFY_EXEC_ONLY=0` uses `-activate`/`-sender` instead of execute-only activation.
-- `CODEX_NOTIFY_APP_ICON` sets a custom icon path or URL. Local paths are converted to `file://` URLs.
-- `CODEX_NOTIFY_DEBUG=1` keeps `terminal-notifier` output and error details for troubleshooting.
-- `CODEX_NOTIFY_SAY=1` enables text-to-speech via macOS `say`. Respects `CODEX_SILENT`.
-- `CODEX_NOTIFY_SAY_VOICE` sets the TTS voice (e.g. `Daniel`). Default: system voice.
-- `CODEX_NOTIFY_SAY_RATE` sets the TTS speech rate in words per minute. Default: system rate.
-- `CODEX_NOTIFY_WEBHOOK` sets a webhook URL for remote notifications (Discord, Slack, etc.).
-- `CODEX_NOTIFY_EXEC_CMD` overrides the execute command (default is `open -b <bundle_id>`).
-- `CODEX_NOTIFY_DND=1` skips notifications when macOS Focus/DND is active.
-- `CODEX_NOTIFY_SCHEDULE="09:00-18:00"` only notifies during the given window (24h format, supports overnight ranges).
-- `CODEX_NOTIFY_THROTTLE=5` suppresses notifications within N seconds of the last one (default `0` = disabled).
-- `CODEX_NOTIFY_LOG=1` appends each notification to `~/.codex/notify.log`.
-- `CODEX_NOTIFY_LOG_FILE` overrides the log file path.
-- `CODEX_NOTIFY_HOOK` runs a command on each notification: `$HOOK "title" "message" "category"`.
 
-Example (louder sound):
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CODEX_NOTIFY_SOUND` | `Glass` / `complete` | Completion sound (path or system name) |
+| `CODEX_NOTIFY_APPROVAL_SOUND` | `Sosumi` / `dialog-warning` | Approval sound |
+| `CODEX_SILENT=1` | — | Disable all sounds |
+| `CODEX_NOTIFY_QUIET=1` | — | Suppress terminal echo |
+| `CODEX_ACTIVATE_BUNDLE` | `com.microsoft.VSCode` | macOS: app to activate on click |
+| `CODEX_SENDER_BUNDLE` | `com.microsoft.VSCode` | macOS: sender icon for `-activate` mode |
+| `CODEX_SUPPRESS_FRONTMOST=0` | `1` | Disable suppression when target app is frontmost |
+| `CODEX_NOTIFY_EVENT_TYPES` | `*` | Codex event types to handle (comma-separated) |
+| `CODEX_NOTIFY_EXEC_ONLY=0` | `1` | macOS: use `-activate` instead of `-execute` |
+| `CODEX_NOTIFY_APP_ICON` | — | Custom icon path or URL |
+| `CODEX_NOTIFY_SAY=1` | — | Enable text-to-speech |
+| `CODEX_NOTIFY_SAY_VOICE` | system | TTS voice name |
+| `CODEX_NOTIFY_SAY_RATE` | system | TTS speech rate (wpm, macOS only) |
+| `CODEX_NOTIFY_WEBHOOK` | — | Webhook URL for remote notifications |
+| `CODEX_NOTIFY_EXEC_CMD` | `open -b <bundle>` | Override click-execute command |
+| `CODEX_NOTIFY_DND=1` | — | Skip notifications during Focus/DND |
+| `CODEX_NOTIFY_SCHEDULE` | — | Notify only during `HH:MM-HH:MM` window |
+| `CODEX_NOTIFY_THROTTLE` | `0` | Suppress notifications within N seconds |
+| `CODEX_NOTIFY_LOG=1` | — | Append to `~/.codex/notify.log` |
+| `CODEX_NOTIFY_LOG_FILE` | `~/.codex/notify.log` | Override log file path |
+| `CODEX_NOTIFY_HOOK` | — | Command to run on each event |
+| `CODEX_NOTIFY_DEBUG=1` | — | Show debug output |
+| `CODEX_NOTIFY_BELL` | `auto` | Terminal bell: `0`/`1`/`auto` |
+| `CODEX_NOTIFY_MIN_DURATION` | `0` | Only notify if N+ seconds elapsed |
+| `CODEX_NOTIFY_ACTIVATE_CMD` | — | Linux/Windows: command to focus editor |
+
+### Per-project configuration
+
+Create a `.agent-notify.env` file in your project root to override settings per repo:
 
 ```bash
-export CODEX_NOTIFY_SOUND="Funk"
+# .agent-notify.env
+CODEX_NOTIFY_SOUND=Funk
+CODEX_NOTIFY_SAY=1
+CODEX_NOTIFY_MIN_DURATION=30
 ```
 
-If your sound path or name contains spaces, quote it in your shell.
+Any `CODEX_NOTIFY_*` or `CODEX_SILENT` variable can be set. The file is sourced when the notification fires (the agent passes the project's `cwd` in the payload). The legacy `.codex-notify.env` filename is also supported.
 
 ## Notes
 - Some macOS versions ignore `-appIcon` and use the sender app icon instead.
-- Execute-only activation is the most reliable path; it may show the Terminal icon.
-- If `terminal-notifier` is missing, the script falls back to `osascript`.
+- Execute-only activation is the most reliable path on macOS; it may show the Terminal icon.
+- If `terminal-notifier` is missing on macOS, the script falls back to `osascript`.
 - Without `python3`, JSON payloads produce a clear error; manual title/message mode still works.
+- **Stdout safety**: the script never writes to stdout during hook execution, so it's safe for Claude Code and Gemini CLI which parse hook stdout.
 
 ## FAQ
 - **Why does the icon show Terminal?** Execute-only activation is the most reliable way to bring your editor to front on click, but macOS shows the Terminal icon for `terminal-notifier`. This is cosmetic only.
 - **How do I change the activated app?** Set `CODEX_ACTIVATE_BUNDLE` to your editor's bundle ID (e.g. `com.microsoft.VSCodeInsiders`).
 - **Does it work with the Codex macOS app?** Yes. If the Codex macOS app (`com.openai.codex`) is frontmost when the notification fires, clicking it will activate the Codex app instead of VS Code. This is automatic — no configuration needed.
+- **Does it work over SSH?** Yes. Terminal bell (`CODEX_NOTIFY_BELL=auto`) fires automatically when no display server is detected. Many terminal emulators convert the bell to a native notification.
+- **Can I use different settings per project?** Yes. Drop a `.agent-notify.env` file in any project root. See "Per-project configuration" above.
 
 ## Security
 - All data stays local by default. Webhook support (`CODEX_NOTIFY_WEBHOOK`) is opt-in and sends notification title/message to the configured URL.
 - Payload is read from stdin/args and used only to build notification text.
+- Per-project `.agent-notify.env` only processes lines matching `CODEX_NOTIFY_*` or `CODEX_SILENT` for safety.
 
 ## Screenshot
-![Codex Notify](./assets/screenshot.png)
+![Agent Notify](./assets/screenshot.png)
 
 ## Troubleshooting
-- No notification: check `~/.codex/config.toml` and macOS notification permissions.
-- No sound: check `CODEX_SILENT` and `CODEX_NOTIFY_SOUND` (path or system sound name).
-- Click does not activate VSCode: install `terminal-notifier` and verify `CODEX_ACTIVATE_BUNDLE`.
-- Icon looks like Terminal: this is expected with execute-only activation. It's cosmetic only.
-- Seeing a `terminal-notifier` usage banner: make sure your `notify` hook points to `codex-notify` and set `CODEX_NOTIFY_DEBUG=1` to inspect args.
-- Clicking “Show” opens Script Editor: set `CODEX_NOTIFY_EXEC_CMD="/usr/bin/open -b com.microsoft.VSCode"` to force `open` instead of AppleScript.
+- **No notification**: check agent config files and OS notification permissions.
+- **No sound**: check `CODEX_SILENT` and `CODEX_NOTIFY_SOUND` (path or system sound name).
+- **macOS: click does not activate editor**: install `terminal-notifier` and verify `CODEX_ACTIVATE_BUNDLE`.
+- **macOS: icon looks like Terminal**: this is expected with execute-only activation. Cosmetic only.
+- **Linux: no notification**: install `libnotify-bin` (Debian/Ubuntu) or `libnotify` (Fedora).
+- **Seeing a `terminal-notifier` usage banner**: make sure your `notify` hook points to `agent-notify` and set `CODEX_NOTIFY_DEBUG=1` to inspect args.
+- **Clicking "Show" opens Script Editor**: set `CODEX_NOTIFY_EXEC_CMD="/usr/bin/open -b com.microsoft.VSCode"`.
 
 ## Changelog
+- 1.0.0 - Cross-platform (macOS, Linux, Windows WSL). Multi-agent (Codex CLI, Claude Code, Gemini CLI). Terminal bell, long-run threshold, duration display, per-project config. Renamed from codex-notify to agent-notify.
 - 0.6.0 - DND/Focus awareness, schedule window, rate limiting, notification log, custom hooks, `--update`, Homebrew formula.
 - 0.4.0 - TTS support (`say`), webhook notifications, `--test-say`.
 - 0.3.0 - Differentiated completion/approval sounds, `--setup`, `--test-approval`, default to all event types.
@@ -173,6 +226,9 @@ If your sound path or name contains spaces, quote it in your shell.
 MIT. See `LICENSE`.
 
 ## Uninstall
-- Remove the notify line from `~/.codex/config.toml`.
-- Delete the script: `rm ~/bin/codex-notify`.
-- Optional: `brew uninstall terminal-notifier`.
+- Remove hooks from your agent config files:
+  - Codex CLI: remove `notify` line from `~/.codex/config.toml`
+  - Claude Code: remove hooks from `~/.claude/settings.json`
+  - Gemini CLI: remove hooks from `~/.gemini/settings.json`
+- Delete the script: `rm ~/bin/agent-notify`
+- Optional: `brew uninstall terminal-notifier`

@@ -1,0 +1,1159 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="1.0.0"
+
+# ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+detect_platform() {
+  case "$(uname -s 2>/dev/null)" in
+    Darwin)                PLATFORM="macos" ;;
+    Linux)                 PLATFORM="linux" ;;
+    CYGWIN*|MINGW*|MSYS*) PLATFORM="windows" ;;
+    *)                     PLATFORM="unknown" ;;
+  esac
+}
+detect_platform
+
+# ---------------------------------------------------------------------------
+# CLI flags  (parsed before anything else)
+# ---------------------------------------------------------------------------
+case "${1:-}" in
+  --version|-v|-V)
+    echo "agent-notify $VERSION"
+    exit 0
+    ;;
+  --help|-h)
+    cat <<'HELP'
+agent-notify - cross-platform notifications for AI coding agents
+
+Supports: Codex CLI · Claude Code · Gemini CLI
+Platforms: macOS · Linux · Windows (WSL / Git Bash)
+
+Usage:
+  agent-notify <json-payload>        Codex notify-hook mode (argv)
+  echo '<json>' | agent-notify       Claude Code / Gemini CLI hook mode (stdin)
+  agent-notify "Title" "Message"     Manual notification
+  agent-notify --test                Codex completion notification
+  agent-notify --test-approval       Codex approval notification
+  agent-notify --test-claude         Claude Code completion notification
+  agent-notify --test-claude-approval  Claude Code permission prompt
+  agent-notify --test-gemini         Gemini CLI completion notification
+  agent-notify --test-say            Completion with TTS
+  agent-notify --test-bell           Terminal bell
+  agent-notify --setup               Auto-configure all detected agents
+  agent-notify --setup-codex         Configure Codex CLI only
+  agent-notify --setup-claude        Configure Claude Code only
+  agent-notify --setup-gemini        Configure Gemini CLI only
+  agent-notify --update              Update to the latest release
+  agent-notify --version             Print version
+  agent-notify --help                Show this help
+
+Environment variables:
+  CODEX_NOTIFY_SOUND           Completion sound (default: Glass / complete.oga)
+  CODEX_NOTIFY_APPROVAL_SOUND  Approval sound (default: Sosumi / dialog-warning.oga)
+  CODEX_SILENT=1               Disable sound
+  CODEX_NOTIFY_QUIET=1         Suppress terminal echo line
+  CODEX_ACTIVATE_BUNDLE        macOS: app bundle to activate on click
+  CODEX_SENDER_BUNDLE          macOS: sender bundle for -activate mode icon
+  CODEX_SUPPRESS_FRONTMOST     Set to 0 to always notify
+  CODEX_NOTIFY_EVENT_TYPES     Event types to handle, comma-separated (default: *)
+  CODEX_NOTIFY_EXEC_ONLY       Set to 0 for -activate instead of -execute (macOS)
+  CODEX_NOTIFY_APP_ICON        Custom icon path or URL (macOS)
+  CODEX_NOTIFY_SAY=1           Speak notification via TTS
+  CODEX_NOTIFY_SAY_VOICE       Voice for TTS (e.g. Daniel, espeak voice)
+  CODEX_NOTIFY_SAY_RATE        Speech rate (words per minute, macOS only)
+  CODEX_NOTIFY_WEBHOOK         Webhook URL (Discord, Slack, etc.)
+  CODEX_NOTIFY_EXEC_CMD        Override the click-execute command
+  CODEX_NOTIFY_DND=1           Skip notification when Focus/DND is active
+  CODEX_NOTIFY_SCHEDULE        Notify only during HH:MM-HH:MM window
+  CODEX_NOTIFY_THROTTLE=5      Suppress notifications within N seconds
+  CODEX_NOTIFY_LOG=1           Append notifications to ~/.codex/notify.log
+  CODEX_NOTIFY_LOG_FILE        Override log file path
+  CODEX_NOTIFY_HOOK            Command to run on each notification event
+  CODEX_NOTIFY_DEBUG=1         Show debug output
+  CODEX_NOTIFY_BELL            Terminal bell: 0=off, 1=always, auto=headless (default: auto)
+  CODEX_NOTIFY_MIN_DURATION=N  Only notify if N+ seconds since session start
+  CODEX_NOTIFY_ACTIVATE_CMD    Linux/Windows: command to focus the editor window
+
+Per-project: place a .agent-notify.env in your project root to override any
+CODEX_NOTIFY_* variable for that repo.
+
+https://github.com/paultendo/agent-notify
+HELP
+    exit 0
+    ;;
+  --test)
+    exec "$0" '{"type":"agent-turn-complete","last-assistant-message":"Test notification from agent-notify","input-messages":["This is a test"],"thread-id":"test"}'
+    ;;
+  --test-say)
+    CODEX_NOTIFY_SAY=1 exec "$0" '{"type":"agent-turn-complete","last-assistant-message":"Test notification from agent-notify","input-messages":["This is a test"],"thread-id":"test"}'
+    ;;
+  --test-approval)
+    exec "$0" '{"type":"approval-required","last-assistant-message":"Waiting for approval","input-messages":["approve?"],"thread-id":"test"}'
+    ;;
+  --test-bell)
+    printf '\a' >&2
+    echo "agent-notify: terminal bell sent" >&2
+    exit 0
+    ;;
+  --test-claude)
+    echo '{"hook_event_name":"Stop","session_id":"test-claude","cwd":"/tmp","last_assistant_message":"Test Claude Code notification from agent-notify"}' \
+      | "$0"
+    exit $?
+    ;;
+  --test-claude-approval)
+    echo '{"hook_event_name":"Notification","session_id":"test-claude","cwd":"/tmp","notification":{"type":"permission_prompt","title":"Permission needed","message":"Claude wants to run a command"}}' \
+      | "$0"
+    exit $?
+    ;;
+  --test-gemini)
+    echo '{"hook_event_name":"AfterAgent","session_id":"test-gemini","cwd":"/tmp","prompt_response":"Test Gemini CLI notification from agent-notify"}' \
+      | "$0"
+    exit $?
+    ;;
+  --setup)
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    any_configured=0
+    # Codex CLI
+    "$self" --setup-codex && any_configured=1
+    # Claude Code
+    "$self" --setup-claude && any_configured=1
+    # Gemini CLI
+    "$self" --setup-gemini && any_configured=1
+    if [[ "$any_configured" == "0" ]]; then
+      echo "agent-notify: no agents configured" >&2
+    fi
+    exit 0
+    ;;
+  --setup-codex)
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    config_dir="$HOME/.codex"
+    config_file="$config_dir/config.toml"
+    mkdir -p "$config_dir"
+    if [[ -f "$config_file" ]] && grep -q '^notify' "$config_file"; then
+      echo "Codex CLI: notify hook already configured in $config_file"
+    else
+      printf '\nnotify = ["%s"]\n' "$self" >> "$config_file"
+      echo "Codex CLI: added notify hook to $config_file"
+    fi
+    exit 0
+    ;;
+  --setup-claude)
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    config_file="$HOME/.claude/settings.json"
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for Claude Code setup" >&2
+      exit 1
+    fi
+    mkdir -p "$HOME/.claude"
+    if [[ -f "$config_file" ]]; then
+      cp "$config_file" "${config_file}.bak"
+    fi
+    python3 - "$self" "$config_file" <<'PYSETUP'
+import json, sys, os
+
+script_path = sys.argv[1]
+config_path = sys.argv[2]
+
+settings = {}
+if os.path.exists(config_path):
+    with open(config_path) as f:
+        try:
+            settings = json.load(f)
+        except json.JSONDecodeError:
+            settings = {}
+
+hooks = settings.setdefault("hooks", {})
+hook_list = hooks.setdefault("Stop", [])
+
+# Check if already configured
+already = any(
+    isinstance(h, dict) and script_path in h.get("command", "")
+    for h in hook_list
+)
+if already:
+    print(f"Claude Code: hooks already configured in {config_path}")
+    sys.exit(0)
+
+# Add Stop hook (task completion)
+hook_list.append({
+    "type": "command",
+    "command": script_path
+})
+
+# Add Notification hook (permission prompts, idle, etc.)
+notif_list = hooks.setdefault("Notification", [])
+notif_already = any(
+    isinstance(h, dict) and script_path in h.get("command", "")
+    for h in notif_list
+)
+if not notif_already:
+    notif_list.append({
+        "type": "command",
+        "command": script_path
+    })
+
+with open(config_path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+
+print(f"Claude Code: added hooks to {config_path}")
+PYSETUP
+    exit 0
+    ;;
+  --setup-gemini)
+    self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    config_file="$HOME/.gemini/settings.json"
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for Gemini CLI setup" >&2
+      exit 1
+    fi
+    mkdir -p "$HOME/.gemini"
+    if [[ -f "$config_file" ]]; then
+      cp "$config_file" "${config_file}.bak"
+    fi
+    python3 - "$self" "$config_file" <<'PYSETUP'
+import json, sys, os
+
+script_path = sys.argv[1]
+config_path = sys.argv[2]
+
+settings = {}
+if os.path.exists(config_path):
+    with open(config_path) as f:
+        try:
+            settings = json.load(f)
+        except json.JSONDecodeError:
+            settings = {}
+
+# Enable hooks
+tools = settings.setdefault("tools", {})
+tools["enableHooks"] = True
+hooks_config = settings.setdefault("hooks", {})
+hooks_config["enabled"] = True
+
+hook_list = hooks_config.setdefault("AfterAgent", [])
+
+# Check if already configured
+already = any(
+    isinstance(h, dict) and script_path in h.get("command", "")
+    for h in hook_list
+)
+if already:
+    print(f"Gemini CLI: hooks already configured in {config_path}")
+    sys.exit(0)
+
+# Add AfterAgent hook (task completion)
+hook_list.append({
+    "name": "agent-notify",
+    "description": "Send desktop notification when agent finishes",
+    "command": script_path,
+    "timeout": 10000
+})
+
+# Add Notification hook
+notif_list = hooks_config.setdefault("Notification", [])
+notif_already = any(
+    isinstance(h, dict) and script_path in h.get("command", "")
+    for h in notif_list
+)
+if not notif_already:
+    notif_list.append({
+        "name": "agent-notify",
+        "description": "Send desktop notification for permission prompts",
+        "command": script_path,
+        "timeout": 10000
+    })
+
+with open(config_path, "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+
+print(f"Gemini CLI: added hooks to {config_path}")
+PYSETUP
+    exit 0
+    ;;
+  --update)
+    if ! command -v curl >/dev/null 2>&1; then
+      echo "agent-notify: error: curl is required for --update" >&2
+      exit 1
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 is required for --update" >&2
+      exit 1
+    fi
+    latest_tag="$(curl -s https://api.github.com/repos/paultendo/agent-notify/releases/latest \
+      | python3 -c "import json,sys; print(json.loads(sys.stdin.read()).get('tag_name',''))" 2>/dev/null || true)"
+    if [[ -z "$latest_tag" ]]; then
+      echo "agent-notify: error: could not fetch latest release" >&2
+      exit 1
+    fi
+    latest_ver="${latest_tag#v}"
+    if [[ "$latest_ver" == "$VERSION" ]]; then
+      echo "agent-notify $VERSION is already up to date."
+      exit 0
+    fi
+    echo "Updating agent-notify $VERSION -> $latest_ver ..."
+    tmpdir="$(mktemp -d)"
+    trap 'rm -rf "$tmpdir"' EXIT
+    curl -sL "https://github.com/paultendo/agent-notify/archive/refs/tags/${latest_tag}.tar.gz" \
+      | tar xz -C "$tmpdir"
+    installer="$(find "$tmpdir" -name install-agent-notify.sh -maxdepth 2 -print -quit 2>/dev/null)"
+    if [[ -z "$installer" || ! -f "$installer" ]]; then
+      echo "agent-notify: error: installer not found in release archive" >&2
+      exit 1
+    fi
+    bash "$installer"
+    echo "Updated to agent-notify $latest_ver"
+    exit 0
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Read stdin (for Claude Code / Gemini CLI hooks)
+# IMPORTANT: never write to stdout — Claude Code and Gemini CLI parse it
+# ---------------------------------------------------------------------------
+stdin_json=""
+if [[ ! -t 0 ]]; then
+  stdin_json="$(cat)"
+fi
+
+# ---------------------------------------------------------------------------
+# Per-project config: source .agent-notify.env from cwd if available
+# (falls back to .codex-notify.env for backwards compatibility)
+# ---------------------------------------------------------------------------
+_source_project_env() {
+  local dir="$1"
+  local env_file=""
+  if [[ -n "$dir" && -f "$dir/.agent-notify.env" ]]; then
+    env_file="$dir/.agent-notify.env"
+  elif [[ -n "$dir" && -f "$dir/.codex-notify.env" ]]; then
+    env_file="$dir/.codex-notify.env"
+  fi
+  if [[ -n "$env_file" ]]; then
+    # Only source CODEX_NOTIFY_* and CODEX_SILENT lines for safety
+    while IFS= read -r line; do
+      case "$line" in
+        CODEX_NOTIFY_*=*|CODEX_SILENT=*) eval "export $line" ;;
+      esac
+    done < "$env_file"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Determine payload source and parse
+# ---------------------------------------------------------------------------
+payload="${1:-}"
+title=""
+msg="Task finished"
+subtitle=""
+group=""
+sound_category="completion"
+agent_name=""
+session_id=""
+project_cwd=""
+
+if [[ -n "$stdin_json" && "$stdin_json" == "{"* ]]; then
+  # ---- stdin JSON: Claude Code or Gemini CLI ----
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "agent-notify: error: python3 required for JSON payloads" >&2
+    exit 1
+  fi
+  parsed=()
+  while IFS= read -r line; do
+    parsed+=("$line")
+  done < <(python3 - "$stdin_json" <<'PY'
+import json, sys
+
+def clean(val):
+    s = "" if val is None else str(val)
+    return " ".join(s.split())
+
+def clip(s, limit):
+    s = clean(s)
+    return s if len(s) <= limit else s[:max(0, limit - 3)] + "..."
+
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(1)
+
+hook_event = clean(data.get("hook_event_name", ""))
+if not hook_event:
+    sys.exit(1)
+
+# Detect agent from payload shape
+# Claude Code: has "last_assistant_message", "tool_name", or nested "notification" dict
+# Gemini CLI: has "prompt_response"
+has_gemini = "prompt_response" in data
+notif = data.get("notification", {})
+has_claude = (
+    "last_assistant_message" in data
+    or "tool_name" in data
+    or (isinstance(notif, dict) and notif.get("type") in (
+        "permission_prompt", "idle_prompt", "auth_success", "elicitation_dialog"
+    ))
+)
+
+if has_gemini:
+    agent = "Gemini"
+    last = clean(data.get("prompt_response", "")) or "Task complete"
+elif has_claude:
+    agent = "Claude"
+    last = clean(data.get("last_assistant_message", "")) or "Task complete"
+else:
+    # Unknown stdin agent — try best guess
+    agent = "Agent"
+    last = clean(data.get("last_assistant_message", data.get("prompt_response", ""))) or "Task complete"
+
+title = f"{agent}: {clip(last, 90)}"
+cwd = clip(data.get("cwd", ""), 140)
+sid = clean(data.get("session_id", ""))
+group = f"{agent.lower()}-{sid}" if sid else ""
+
+# Categorize event
+category = "completion"
+if hook_event == "Notification":
+    category = "approval"
+    # Extract notification details if present (notif already parsed above)
+    if isinstance(notif, dict):
+        notif_title = clean(notif.get("title", ""))
+        notif_msg = clean(notif.get("message", ""))
+        if notif_title:
+            title = f"{agent}: {clip(notif_title, 90)}"
+        if notif_msg:
+            last = notif_msg
+elif hook_event in ("Stop", "AfterAgent"):
+    category = "completion"
+else:
+    category = "completion"
+
+message = clip(last, 140)
+
+print(title)
+print(message)
+print(cwd)
+print(group)
+print(category)
+print(agent)
+print(sid)
+PY
+  )
+  if [[ ${#parsed[@]} -eq 0 ]]; then
+    exit 0
+  fi
+  title="${parsed[0]:-Agent}"
+  msg="${parsed[1]:-Task finished}"
+  subtitle="${parsed[2]:-}"
+  group="${parsed[3]:-}"
+  sound_category="${parsed[4]:-completion}"
+  agent_name="${parsed[5]:-}"
+  session_id="${parsed[6]:-}"
+
+elif [[ -n "$payload" && "$payload" == "{"* ]]; then
+  # ---- argv JSON: Codex CLI ----
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "agent-notify: error: python3 required for JSON payloads" >&2
+    exit 1
+  fi
+  parsed=()
+  while IFS= read -r line; do
+    parsed+=("$line")
+  done < <(python3 - "$payload" <<'PY'
+import json, sys
+import os
+
+def clean(val):
+    s = "" if val is None else str(val)
+    return " ".join(s.split())
+
+def clip(s, limit):
+    s = clean(s)
+    return s if len(s) <= limit else s[:max(0, limit - 3)] + "..."
+
+try:
+    payload = json.loads(sys.argv[1])
+except Exception:
+    sys.exit(1)
+
+event_type = clean(payload.get("type", ""))
+allow_env = os.environ.get("CODEX_NOTIFY_EVENT_TYPES", "*")
+allowed = [s.strip() for s in allow_env.split(",") if s.strip()]
+if not allowed:
+    allowed = ["*"]
+if allowed != ["*"] and event_type and event_type not in allowed:
+    sys.exit(0)
+
+last = clean(payload.get("last-assistant-message", "")) or "Turn complete"
+title = f"Codex: {clip(last, 90)}"
+
+inputs = payload.get("input-messages", [])
+if isinstance(inputs, list):
+    parts = []
+    for item in inputs:
+        if isinstance(item, str):
+            parts.append(item)
+        else:
+            parts.append(json.dumps(item, ensure_ascii=True))
+    inputs_text = " / ".join(parts)
+else:
+    inputs_text = str(inputs)
+
+message = clip(inputs_text, 140) or "Turn complete"
+cwd = clip(payload.get("cwd", ""), 140)
+thread_id = clean(payload.get("thread-id", ""))
+group = f"codex-{thread_id}" if thread_id else ""
+
+category = "completion" if event_type == "agent-turn-complete" else "approval"
+
+print(title)
+print(message)
+print(cwd)
+print(group)
+print(category)
+print("Codex")
+print(thread_id)
+PY
+  )
+  if [[ ${#parsed[@]} -eq 0 ]]; then
+    exit 0
+  fi
+  title="${parsed[0]:-Codex}"
+  msg="${parsed[1]:-Task finished}"
+  subtitle="${parsed[2]:-}"
+  group="${parsed[3]:-}"
+  sound_category="${parsed[4]:-completion}"
+  agent_name="${parsed[5]:-Codex}"
+  session_id="${parsed[6]:-}"
+
+else
+  # ---- Manual title/message mode ----
+  title="${1:-Codex}"
+  msg="${2:-Task finished}"
+  agent_name="Manual"
+  if [[ -n "${3:-}" ]]; then
+    # Legacy: third arg was custom sound
+    export CODEX_NOTIFY_SOUND="${3}"
+  fi
+fi
+
+# Extract project cwd from subtitle (which is the cwd from the payload)
+project_cwd="${subtitle}"
+# Source per-project config
+_source_project_env "${project_cwd:-$PWD}"
+
+# ---------------------------------------------------------------------------
+# Load configuration (after per-project env so overrides take effect)
+# ---------------------------------------------------------------------------
+quiet="${CODEX_NOTIFY_QUIET:-0}"
+activate_bundle="${CODEX_ACTIVATE_BUNDLE:-com.microsoft.VSCode}"
+sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
+suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
+exec_only="${CODEX_NOTIFY_EXEC_ONLY:-1}"
+app_icon="${CODEX_NOTIFY_APP_ICON:-}"
+exec_cmd="${CODEX_NOTIFY_EXEC_CMD:-}"
+say_enabled="${CODEX_NOTIFY_SAY:-0}"
+webhook_url="${CODEX_NOTIFY_WEBHOOK:-}"
+bell_mode="${CODEX_NOTIFY_BELL:-auto}"
+min_duration="${CODEX_NOTIFY_MIN_DURATION:-0}"
+activate_cmd="${CODEX_NOTIFY_ACTIVATE_CMD:-}"
+
+# ---------------------------------------------------------------------------
+# Platform-specific: resolve default sounds
+# ---------------------------------------------------------------------------
+resolve_sound() {
+  local s="$1"
+  if [[ -z "$s" ]]; then
+    printf '%s' "$s"
+    return
+  fi
+  case "$PLATFORM" in
+    macos)
+      if [[ "$s" != */* ]]; then
+        local c="/System/Library/Sounds/${s}"
+        if [[ -f "$c" ]]; then s="$c"
+        elif [[ -f "${c}.aiff" ]]; then s="${c}.aiff"
+        fi
+      fi
+      ;;
+    linux)
+      if [[ "$s" != */* ]]; then
+        # Try freedesktop sound theme
+        for dir in /usr/share/sounds/freedesktop/stereo /usr/share/sounds/gnome/default/alerts; do
+          if [[ -f "$dir/${s}.oga" ]]; then s="$dir/${s}.oga"; break; fi
+          if [[ -f "$dir/${s}.ogg" ]]; then s="$dir/${s}.ogg"; break; fi
+          if [[ -f "$dir/${s}.wav" ]]; then s="$dir/${s}.wav"; break; fi
+        done
+      fi
+      ;;
+    windows)
+      if [[ "$s" != */* && "$s" != *\\* ]]; then
+        local windir
+        windir="$(cmd.exe /c 'echo %WINDIR%' 2>/dev/null | tr -d '\r' || echo 'C:\Windows')"
+        local media="${windir}\\Media\\${s}.wav"
+        s="$media"
+      fi
+      ;;
+  esac
+  printf '%s' "$s"
+}
+
+_default_completion_sound() {
+  case "$PLATFORM" in
+    macos)   echo "Glass" ;;
+    linux)   echo "complete" ;;
+    windows) echo "Windows Notify System Generic" ;;
+    *)       echo "" ;;
+  esac
+}
+
+_default_approval_sound() {
+  case "$PLATFORM" in
+    macos)   echo "Sosumi" ;;
+    linux)   echo "dialog-warning" ;;
+    windows) echo "Windows Notify Calendar" ;;
+    *)       echo "" ;;
+  esac
+}
+
+sound="${CODEX_NOTIFY_SOUND:-$(_default_completion_sound)}"
+sound="$(resolve_sound "$sound")"
+
+if [[ "$sound_category" == "approval" && "${CODEX_SILENT:-}" != "1" ]]; then
+  approval_sound="${CODEX_NOTIFY_APPROVAL_SOUND:-$(_default_approval_sound)}"
+  sound="$(resolve_sound "$approval_sound")"
+fi
+
+if [[ "${CODEX_SILENT:-}" == "1" ]]; then
+  sound=""
+fi
+
+# ---------------------------------------------------------------------------
+# Platform-specific: icon resolution (macOS only)
+# ---------------------------------------------------------------------------
+if [[ "$PLATFORM" == "macos" ]]; then
+  if [[ -z "$app_icon" && "$activate_bundle" == "com.microsoft.VSCode" ]]; then
+    default_icon="/Applications/Visual Studio Code.app/Contents/Resources/Code.icns"
+    if [[ -f "$default_icon" ]]; then
+      app_icon="$default_icon"
+    fi
+  fi
+
+  if [[ -n "$app_icon" && "$app_icon" != http* && "$app_icon" != file://* ]]; then
+    if [[ -f "$app_icon" ]]; then
+      if command -v python3 >/dev/null 2>&1; then
+        app_icon="$(python3 - "$app_icon" <<'PY'
+from pathlib import Path
+import sys
+print(Path(sys.argv[1]).resolve().as_uri())
+PY
+)"
+      else
+        app_icon="file://$app_icon"
+      fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Platform-specific: exec command / activate command
+# ---------------------------------------------------------------------------
+if [[ "$PLATFORM" == "macos" ]]; then
+  if [[ -z "$exec_cmd" && -n "$activate_bundle" ]]; then
+    exec_cmd="/usr/bin/open -b ${activate_bundle}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Platform-specific: frontmost app detection + auto-detect Codex macOS app
+# ---------------------------------------------------------------------------
+get_frontmost_app() {
+  case "$PLATFORM" in
+    macos)
+      osascript -e 'tell application "System Events" to get bundle identifier of first application process whose frontmost is true' 2>/dev/null || true
+      ;;
+    linux)
+      if command -v xdotool >/dev/null 2>&1; then
+        local wid
+        wid="$(xdotool getactivewindow 2>/dev/null || true)"
+        if [[ -n "$wid" ]]; then
+          xdotool getactivewindow getwindowname 2>/dev/null || true
+        fi
+      fi
+      ;;
+    windows)
+      powershell.exe -NoProfile -Command '
+        Add-Type -Name Win -Namespace Native -MemberDefinition "[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();"
+        $h = [Native.Win]::GetForegroundWindow()
+        Get-Process | Where-Object { $_.MainWindowHandle -eq $h } | Select-Object -ExpandProperty ProcessName
+      ' 2>/dev/null | tr -d '\r' || true
+      ;;
+  esac
+}
+
+if [[ "$PLATFORM" == "macos" ]]; then
+  front_bundle="$(get_frontmost_app)"
+  # Auto-detect: if the Codex macOS app is frontmost, activate it instead
+  if [[ -n "$front_bundle" && "$front_bundle" == "com.openai.codex" && "$activate_bundle" != "com.openai.codex" ]]; then
+    activate_bundle="com.openai.codex"
+    exec_cmd="/usr/bin/open -b com.openai.codex"
+  fi
+  if [[ "$suppress_frontmost" != "0" && -n "$front_bundle" && "$front_bundle" == "$activate_bundle" ]]; then
+    exit 0
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# DND / Focus awareness (opt-in)
+# ---------------------------------------------------------------------------
+check_dnd() {
+  case "$PLATFORM" in
+    macos)
+      local dnd_active=0
+      local dnd_assertions="$HOME/Library/DoNotDisturb/DB/Assertions.json"
+      if [[ -f "$dnd_assertions" ]] && command -v python3 >/dev/null 2>&1; then
+        dnd_active="$(python3 -c "
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+    stores = data.get('data', [])
+    for store in stores:
+        assertions = store.get('storeAssertionRecords', [])
+        if assertions:
+            print('1')
+            sys.exit(0)
+    print('0')
+except Exception:
+    print('0')
+" "$dnd_assertions" 2>/dev/null || echo 0)"
+      fi
+      if [[ "$dnd_active" == "0" ]]; then
+        local dnd_pref
+        dnd_pref="$(defaults -currentHost read com.apple.notificationcenterui doNotDisturb 2>/dev/null || echo 0)"
+        if [[ "$dnd_pref" == "1" ]]; then
+          dnd_active=1
+        fi
+      fi
+      echo "$dnd_active"
+      ;;
+    linux)
+      # Check dunst / sway / GNOME DND status
+      if command -v dunstctl >/dev/null 2>&1; then
+        if dunstctl is-paused 2>/dev/null | grep -q "true"; then
+          echo "1"; return
+        fi
+      fi
+      if command -v dbus-send >/dev/null 2>&1; then
+        local gnome_dnd
+        gnome_dnd="$(dbus-send --session --print-reply --dest=org.gnome.Shell \
+          /org/gnome/Shell org.freedesktop.DBus.Properties.Get \
+          string:'org.gnome.Shell' string:'DoNotDisturb' 2>/dev/null | grep -o 'true\|false' || true)"
+        if [[ "$gnome_dnd" == "true" ]]; then
+          echo "1"; return
+        fi
+      fi
+      echo "0"
+      ;;
+    windows)
+      local focus
+      focus="$(powershell.exe -NoProfile -Command '
+        try {
+          $val = Get-ItemPropertyValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings" -Name "NOC_GLOBAL_SETTING_TOASTS_ENABLED" -ErrorAction Stop
+          if ($val -eq 0) { Write-Output "1" } else { Write-Output "0" }
+        } catch { Write-Output "0" }
+      ' 2>/dev/null | tr -d '\r' || echo 0)"
+      echo "$focus"
+      ;;
+    *)
+      echo "0"
+      ;;
+  esac
+}
+
+if [[ "${CODEX_NOTIFY_DND:-0}" == "1" ]]; then
+  if [[ "$(check_dnd)" == "1" ]]; then
+    exit 0
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Schedule awareness (opt-in)
+# ---------------------------------------------------------------------------
+notify_schedule="${CODEX_NOTIFY_SCHEDULE:-}"
+if [[ -n "$notify_schedule" ]]; then
+  sched_start="${notify_schedule%%-*}"
+  sched_end="${notify_schedule##*-}"
+  if [[ "$sched_start" =~ ^[0-9]{2}:[0-9]{2}$ && "$sched_end" =~ ^[0-9]{2}:[0-9]{2}$ ]]; then
+    now_mins=$(( 10#$(date +%H) * 60 + 10#$(date +%M) ))
+    start_mins=$(( 10#${sched_start%%:*} * 60 + 10#${sched_start##*:} ))
+    end_mins=$(( 10#${sched_end%%:*} * 60 + 10#${sched_end##*:} ))
+    in_window=0
+    if [[ $start_mins -le $end_mins ]]; then
+      if [[ $now_mins -ge $start_mins && $now_mins -lt $end_mins ]]; then
+        in_window=1
+      fi
+    else
+      if [[ $now_mins -ge $start_mins || $now_mins -lt $end_mins ]]; then
+        in_window=1
+      fi
+    fi
+    if [[ "$in_window" == "0" ]]; then
+      exit 0
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Rate limiting / throttle (opt-in)
+# ---------------------------------------------------------------------------
+throttle_secs="${CODEX_NOTIFY_THROTTLE:-0}"
+if [[ "$throttle_secs" -gt 0 ]] 2>/dev/null; then
+  throttle_file="$HOME/.codex/.notify-last-ts"
+  now_epoch="$(date +%s)"
+  if [[ -f "$throttle_file" ]]; then
+    last_epoch="$(cat "$throttle_file" 2>/dev/null || echo 0)"
+    if [[ $(( now_epoch - last_epoch )) -lt $throttle_secs ]]; then
+      exit 0
+    fi
+  fi
+  mkdir -p "$HOME/.codex"
+  printf '%s' "$now_epoch" > "$throttle_file"
+fi
+
+# ---------------------------------------------------------------------------
+# Min-duration / long-run threshold (opt-in)
+# ---------------------------------------------------------------------------
+format_duration() {
+  local secs="$1"
+  if [[ "$secs" -lt 60 ]]; then
+    echo "${secs}s"
+  elif [[ "$secs" -lt 3600 ]]; then
+    echo "$(( secs / 60 ))m $(( secs % 60 ))s"
+  else
+    echo "$(( secs / 3600 ))h $(( (secs % 3600) / 60 ))m $(( secs % 60 ))s"
+  fi
+}
+
+elapsed_display=""
+if [[ "$min_duration" -gt 0 ]] 2>/dev/null && [[ -n "$session_id" ]]; then
+  ts_dir="$HOME/.codex/.notify-timestamps"
+  mkdir -p "$ts_dir"
+  ts_file="$ts_dir/$session_id"
+  now_epoch="$(date +%s)"
+
+  if [[ -f "$ts_file" ]]; then
+    start_epoch="$(cat "$ts_file" 2>/dev/null || echo "$now_epoch")"
+    elapsed=$(( now_epoch - start_epoch ))
+    if [[ $elapsed -lt $min_duration ]]; then
+      exit 0
+    fi
+    elapsed_display="$(format_duration "$elapsed")"
+    # Reset for next run
+    printf '%s' "$now_epoch" > "$ts_file"
+  else
+    # First notification for this session — record start time, skip notify
+    printf '%s' "$now_epoch" > "$ts_file"
+    exit 0
+  fi
+
+  # Cleanup old timestamp files (>24h)
+  find "$ts_dir" -maxdepth 1 -type f -mmin +1440 -delete 2>/dev/null || true
+fi
+
+# Append duration to title if available
+if [[ -n "$elapsed_display" ]]; then
+  title="$title ($elapsed_display)"
+fi
+
+# ---------------------------------------------------------------------------
+# Terminal echo
+# ---------------------------------------------------------------------------
+stderr_echo() {
+  if [[ "$quiet" != "1" ]]; then
+    local line="$title -- $msg"
+    if [[ -n "$subtitle" ]]; then
+      line="$title -- $msg ($subtitle)"
+    fi
+    printf '[%s] agent-notify: %s\n' "$(date +%H:%M:%S)" "$line" >&2
+  fi
+}
+
+stderr_echo
+
+# ---------------------------------------------------------------------------
+# Notification log (opt-in)
+# ---------------------------------------------------------------------------
+if [[ "${CODEX_NOTIFY_LOG:-0}" == "1" ]]; then
+  log_file="${CODEX_NOTIFY_LOG_FILE:-$HOME/.codex/notify.log}"
+  mkdir -p "$(dirname "$log_file")"
+  log_line="$title -- $msg"
+  if [[ -n "$subtitle" ]]; then
+    log_line="$title -- $msg ($subtitle)"
+  fi
+  printf '[%s] [%s] [%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${agent_name:-Manual}" "${sound_category:-completion}" "$log_line" >> "$log_file"
+fi
+
+# ---------------------------------------------------------------------------
+# Platform-specific: send desktop notification
+# ---------------------------------------------------------------------------
+send_notification() {
+  case "$PLATFORM" in
+    macos)
+      _send_notification_macos
+      ;;
+    linux)
+      _send_notification_linux
+      ;;
+    windows)
+      _send_notification_windows
+      ;;
+    *)
+      echo "$title: $msg" >&2
+      ;;
+  esac
+}
+
+_send_notification_macos() {
+  local tn_bin
+  tn_bin="$(command -v terminal-notifier 2>/dev/null || true)"
+  if [[ -z "$tn_bin" ]]; then
+    for candidate in /opt/homebrew/bin/terminal-notifier /usr/local/bin/terminal-notifier; do
+      if [[ -x "$candidate" ]]; then
+        tn_bin="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [[ -n "$tn_bin" ]]; then
+    local tn_args=(-title "$title" -message "$msg")
+    if [[ -n "$subtitle" ]]; then
+      tn_args+=(-subtitle "$subtitle")
+    fi
+    if [[ -n "$group" ]]; then
+      tn_args+=(-group "$group")
+    fi
+    if [[ -n "$app_icon" ]]; then
+      tn_args+=(-appIcon "$app_icon")
+    fi
+    if [[ -n "$activate_bundle" ]]; then
+      if [[ "$exec_only" != "0" ]]; then
+        if [[ -n "$exec_cmd" ]]; then
+          tn_args+=(-execute "$exec_cmd")
+        fi
+      else
+        tn_args+=(-activate "$activate_bundle")
+      fi
+    fi
+    if [[ "$exec_only" == "0" && -n "$sender_bundle" ]]; then
+      tn_args+=(-sender "$sender_bundle")
+    fi
+    local tn_rc=0
+    if [[ "${CODEX_NOTIFY_DEBUG:-}" == "1" ]]; then
+      "$tn_bin" "${tn_args[@]}" || tn_rc=$?
+    else
+      "$tn_bin" "${tn_args[@]}" >/dev/null 2>&1 || tn_rc=$?
+    fi
+    if [[ $tn_rc -ne 0 ]]; then
+      _notify_fallback_macos
+    fi
+  else
+    _notify_fallback_macos
+  fi
+}
+
+_notify_fallback_macos() {
+  local fallback_msg="$msg"
+  if [[ -n "$subtitle" ]]; then
+    fallback_msg="$msg - $subtitle"
+  fi
+  osascript -e "display notification \"$fallback_msg\" with title \"$title\"" 2>/dev/null \
+    || echo "$title: $fallback_msg" >&2
+}
+
+_send_notification_linux() {
+  local urgency="normal"
+  if [[ "$sound_category" == "approval" ]]; then
+    urgency="critical"
+  fi
+
+  if command -v notify-send >/dev/null 2>&1; then
+    local ns_args=(-u "$urgency")
+    if [[ -n "$app_icon" ]]; then
+      ns_args+=(-i "$app_icon")
+    fi
+    notify-send "${ns_args[@]}" "$title" "$msg" 2>/dev/null || true
+  elif command -v zenity >/dev/null 2>&1; then
+    zenity --notification --text="$title: $msg" 2>/dev/null &
+    disown
+  else
+    echo "$title: $msg" >&2
+  fi
+}
+
+_send_notification_windows() {
+  powershell.exe -NoProfile -Command "
+    [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime] | Out-Null
+    \$xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
+    \$xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>$title</text><text>$msg</text></binding></visual></toast>')
+    \$toast = [Windows.UI.Notifications.ToastNotification]::new(\$xml)
+    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('agent-notify').Show(\$toast)
+  " 2>/dev/null || echo "$title: $msg" >&2
+}
+
+send_notification
+
+# ---------------------------------------------------------------------------
+# Platform-specific: play sound
+# ---------------------------------------------------------------------------
+play_sound() {
+  local s="$1"
+  if [[ -z "$s" ]]; then return; fi
+
+  case "$PLATFORM" in
+    macos)
+      afplay "$s" >/dev/null 2>&1 &
+      disown
+      ;;
+    linux)
+      if command -v paplay >/dev/null 2>&1; then
+        paplay "$s" >/dev/null 2>&1 &
+      elif command -v aplay >/dev/null 2>&1; then
+        aplay "$s" >/dev/null 2>&1 &
+      elif command -v ffplay >/dev/null 2>&1; then
+        ffplay -nodisp -autoexit "$s" >/dev/null 2>&1 &
+      fi
+      disown 2>/dev/null || true
+      ;;
+    windows)
+      powershell.exe -NoProfile -Command "
+        (New-Object Media.SoundPlayer '$s').PlaySync()
+      " >/dev/null 2>&1 &
+      disown 2>/dev/null || true
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Platform-specific: TTS (text-to-speech)
+# ---------------------------------------------------------------------------
+speak_tts() {
+  local text="$1"
+  local voice="${CODEX_NOTIFY_SAY_VOICE:-}"
+  local rate="${CODEX_NOTIFY_SAY_RATE:-}"
+
+  case "$PLATFORM" in
+    macos)
+      local say_args=()
+      if [[ -n "$voice" ]]; then say_args+=(-v "$voice"); fi
+      if [[ -n "$rate" ]]; then say_args+=(-r "$rate"); fi
+      say ${say_args[@]+"${say_args[@]}"} "$text" >/dev/null 2>&1 &
+      disown
+      ;;
+    linux)
+      if command -v espeak >/dev/null 2>&1; then
+        local es_args=()
+        if [[ -n "$voice" ]]; then es_args+=(-v "$voice"); fi
+        if [[ -n "$rate" ]]; then es_args+=(-s "$rate"); fi
+        espeak ${es_args[@]+"${es_args[@]}"} "$text" >/dev/null 2>&1 &
+        disown
+      elif command -v spd-say >/dev/null 2>&1; then
+        spd-say "$text" >/dev/null 2>&1 &
+        disown
+      fi
+      ;;
+    windows)
+      powershell.exe -NoProfile -Command "
+        Add-Type -AssemblyName System.Speech
+        \$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
+        \$synth.Speak('$text')
+      " >/dev/null 2>&1 &
+      disown 2>/dev/null || true
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Terminal bell
+# ---------------------------------------------------------------------------
+_should_bell() {
+  case "$bell_mode" in
+    0|off|false) return 1 ;;
+    1|on|true|always) return 0 ;;
+    auto|"")
+      # Bell when headless: Linux without display, or when no notification tool available
+      if [[ "$PLATFORM" == "linux" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+        return 0
+      fi
+      if [[ "$PLATFORM" == "unknown" ]]; then
+        return 0
+      fi
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+if _should_bell; then
+  printf '\a' >&2
+fi
+
+# ---------------------------------------------------------------------------
+# TTS
+# ---------------------------------------------------------------------------
+if [[ "$say_enabled" == "1" && "${CODEX_SILENT:-}" != "1" ]]; then
+  speak_tts "$title"
+fi
+
+# ---------------------------------------------------------------------------
+# Webhook
+# ---------------------------------------------------------------------------
+if [[ -n "$webhook_url" ]]; then
+  webhook_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if command -v python3 >/dev/null 2>&1; then
+    webhook_body="$(python3 -c "
+import json, sys
+print(json.dumps({
+    'content': sys.argv[1] + ' \u2014 ' + sys.argv[2],
+    'title': sys.argv[1],
+    'message': sys.argv[2],
+    'agent': sys.argv[3],
+    'category': sys.argv[4],
+    'timestamp': sys.argv[5]
+}))" "$title" "$msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_ts")"
+  else
+    webhook_body="{\"content\":\"$title\"}"
+  fi
+  curl -s -X POST -H "Content-Type: application/json" \
+    -d "$webhook_body" "$webhook_url" >/dev/null 2>&1 &
+  disown
+fi
+
+# ---------------------------------------------------------------------------
+# Custom hook (opt-in)
+# ---------------------------------------------------------------------------
+notify_hook="${CODEX_NOTIFY_HOOK:-}"
+if [[ -n "$notify_hook" ]]; then
+  if [[ "${CODEX_NOTIFY_DEBUG:-}" == "1" ]]; then
+    $notify_hook "$title" "$msg" "${sound_category:-completion}" "${agent_name:-Manual}" &
+  else
+    $notify_hook "$title" "$msg" "${sound_category:-completion}" "${agent_name:-Manual}" >/dev/null 2>&1 &
+  fi
+  disown
+fi
+
+# ---------------------------------------------------------------------------
+# Play sound
+# ---------------------------------------------------------------------------
+play_sound "$sound"
+
+# ---------------------------------------------------------------------------
+# Activate editor (Linux/Windows — click-to-focus handled by terminal-notifier on macOS)
+# ---------------------------------------------------------------------------
+if [[ "$PLATFORM" != "macos" && -n "$activate_cmd" ]]; then
+  eval "$activate_cmd" >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+fi
