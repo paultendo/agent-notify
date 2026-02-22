@@ -1,6 +1,6 @@
 # Codex Notify
 
-macOS notifications for Codex with reliable VSCode activation. (macOS-only.)
+macOS notifications for OpenAI Codex — works with the CLI, VS Code extension, and Codex macOS app.
 
 [![shellcheck](https://github.com/paultendo/codex-notify/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/paultendo/codex-notify/actions/workflows/shellcheck.yml)
 [![release](https://img.shields.io/github/v/release/paultendo/codex-notify)](https://github.com/paultendo/codex-notify/releases/latest)
@@ -12,10 +12,11 @@ macOS notifications for Codex with reliable VSCode activation. (macOS-only.)
 ```bash
 brew tap paultendo/codex-notify https://github.com/paultendo/codex-notify
 brew install codex-notify
+codex-notify --setup
 ```
 
 ### Option B: Manual install
-1) Run the installer:
+1) Clone or download the repo, then run the installer:
 
 ```bash
 chmod +x ./install-codex-notify.sh
@@ -47,7 +48,7 @@ Restart Codex and run a quick task to verify notifications.
 - Clean, grouped notifications per Codex thread.
 - Rich titles/messages from Codex JSON payloads.
 - Terminal echo: prints a summary line to stderr for logging/visibility.
-- Click to activate VSCode (execute-only by default for reliability).
+- Click to activate VSCode (execute-only by default for reliability). Auto-detects the Codex macOS app and activates it instead when appropriate.
 - `--setup` flag for zero-friction config.toml setup.
 - TTS (text-to-speech) via macOS `say` for audible status when away from desk.
 - Webhook support for remote notifications (Discord, Slack, etc.).
@@ -59,6 +60,12 @@ Restart Codex and run a quick task to verify notifications.
 - Self-update via `--update`.
 - Homebrew installable.
 - Fallback to `osascript` if `terminal-notifier` is missing.
+
+## Compatibility
+Works with all Codex clients that support the `notify` hook in `~/.codex/config.toml`:
+- **Codex CLI** — terminal-based usage.
+- **Codex VS Code extension** — notifications fire and clicking activates VS Code.
+- **Codex macOS app** — auto-detected; clicking the notification activates the Codex app instead of VS Code.
 
 ## Requirements
 - macOS (Notification Center + `osascript`).
@@ -130,6 +137,7 @@ If your sound path or name contains spaces, quote it in your shell.
 ## FAQ
 - **Why does the icon show Terminal?** Execute-only activation is the most reliable way to bring your editor to front on click, but macOS shows the Terminal icon for `terminal-notifier`. This is cosmetic only.
 - **How do I change the activated app?** Set `CODEX_ACTIVATE_BUNDLE` to your editor's bundle ID (e.g. `com.microsoft.VSCodeInsiders`).
+- **Does it work with the Codex macOS app?** Yes. If the Codex macOS app (`com.openai.codex`) is frontmost when the notification fires, clicking it will activate the Codex app instead of VS Code. This is automatic — no configuration needed.
 
 ## Security
 - All data stays local by default. Webhook support (`CODEX_NOTIFY_WEBHOOK`) is opt-in and sends notification title/message to the configured URL.
