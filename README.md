@@ -169,14 +169,14 @@ sudo dnf install espeak-ng       # optional TTS
 
 | Terminal | Detection | Focus method |
 |----------|-----------|-------------|
-| **VS Code** | `TERM_PROGRAM` / default | `open -b` |
-| **iTerm2** | `TERM_PROGRAM` / `ITERM_SESSION_ID` | `open -b` / AppleScript window match |
+| **VS Code** | `TERM_PROGRAM` / default | AppleScript window match |
+| **iTerm2** | `TERM_PROGRAM` / `ITERM_SESSION_ID` | AppleScript window match |
 | **Ghostty** | `GHOSTTY_RESOURCES_DIR` | AppleScript window match |
-| **Warp** | `__CFBundleIdentifier` / `TERM_PROGRAM` | `open -b` |
-| **kitty** | `KITTY_WINDOW_ID` + `KITTY_LISTEN_ON` | `kitty @ focus-window` |
-| **WezTerm** | `WEZTERM_PANE` | `wezterm cli activate-pane` |
+| **Warp** | `__CFBundleIdentifier` / `TERM_PROGRAM` | AppleScript window match |
+| **kitty** | `KITTY_WINDOW_ID` + `KITTY_LISTEN_ON` | `kitty @ focus-window` / AppleScript fallback |
+| **WezTerm** | `WEZTERM_PANE` | `wezterm cli activate-pane` / AppleScript fallback |
 | **Alacritty** | `TERM_PROGRAM` | AppleScript window match |
-| **Terminal.app** | `TERM_PROGRAM` | `open -b` |
+| **Terminal.app** | `TERM_PROGRAM` | AppleScript window match |
 
 </details>
 

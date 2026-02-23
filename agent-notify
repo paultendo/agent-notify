@@ -477,27 +477,25 @@ _build_exec_cmd() {
   fi
 
   # --- Standard terminal focus (macOS) ---
-  # For terminals that support window-title matching, use AppleScript to find
-  # the right window by folder name in the title bar
+  # Use System Events to find the right window by folder name in the title.
+  # This works for all apps (including Electron apps like VS Code) as long as
+  # the user has granted accessibility access.  We target the process by bundle
+  # identifier so it works regardless of the process display name.
   local folder_name=""
   if [[ -n "$cwd" ]]; then
     folder_name="${cwd##*/}"
   fi
 
-  case "$bundle" in
-    com.mitchellh.ghostty|com.googlecode.iterm2|org.alacritty|co.zeit.hyper)
-      if [[ -n "$folder_name" ]]; then
-        # AppleScript: activate app, then find window whose title contains folder name
-        local safe_bundle safe_folder
-        safe_bundle="${bundle//\\/\\\\}"
-        safe_folder="${folder_name//\\/\\\\}"
-        safe_folder="${safe_folder//\"/\\\"}"
-        printf "osascript -e 'tell application id \"%s\"' -e 'activate' -e 'set _n to \"%s\"' -e 'repeat with w in windows' -e 'if name of w contains _n then' -e 'set index of w to 1' -e 'exit repeat' -e 'end if' -e 'end repeat' -e 'end tell'" \
-          "$safe_bundle" "$safe_folder"
-        return
-      fi
-      ;;
-  esac
+  if [[ -n "$folder_name" ]]; then
+    local safe_bundle safe_folder
+    safe_bundle="${bundle//\\/\\\\}"
+    safe_bundle="${safe_bundle//\"/\\\"}"
+    safe_folder="${folder_name//\\/\\\\}"
+    safe_folder="${safe_folder//\"/\\\"}"
+    printf "osascript -e 'tell application \"System Events\"' -e 'tell (first process whose bundle identifier is \"%s\")' -e 'set _n to \"%s\"' -e 'repeat with w in windows' -e 'if name of w contains _n then' -e 'perform action \"AXRaise\" of w' -e 'exit repeat' -e 'end if' -e 'end repeat' -e 'end tell' -e 'end tell' -e 'tell application id \"%s\" to activate'" \
+      "$safe_bundle" "$safe_folder" "$safe_bundle"
+    return
+  fi
 
   # Default: just open the app
   printf '/usr/bin/open -b %s' "$bundle"
