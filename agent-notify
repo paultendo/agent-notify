@@ -908,6 +908,7 @@ get_frontmost_app() {
       fi
       ;;
     windows)
+      # shellcheck disable=SC2016
       powershell.exe -NoProfile -Command '
         Add-Type -Name Win -Namespace Native -MemberDefinition "[DllImport(\"user32.dll\")] public static extern IntPtr GetForegroundWindow();"
         $h = [Native.Win]::GetForegroundWindow()
@@ -982,6 +983,7 @@ except Exception:
       ;;
     windows)
       local focus
+      # shellcheck disable=SC2016
       focus="$(powershell.exe -NoProfile -Command '
         try {
           $val = Get-ItemPropertyValue "HKCU:\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings" -Name "NOC_GLOBAL_SETTING_TOASTS_ENABLED" -ErrorAction Stop
