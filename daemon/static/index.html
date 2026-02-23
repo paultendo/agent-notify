@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Notify — Control Plane</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --yellow: #d29922;
+  --red: #f85149;
+  --orange: #db6d28;
+  --purple: #bc8cff;
+  --grey: #484f58;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+.container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+
+/* Header */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.status-dot.off { background: var(--grey); }
+#health-info { font-size: 13px; color: var(--text-muted); }
+
+/* Sections */
+.section {
+  margin-bottom: 32px;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.section-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+/* Agent cards */
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+.agent-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  transition: border-color 0.15s;
+}
+.agent-card:hover { border-color: var(--accent); }
+.agent-card .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.agent-card .name {
+  font-weight: 600;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-card .status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.status-idle .status-badge { background: rgba(63,185,80,0.15); color: var(--green); }
+.status-waiting .status-badge { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.status-error .status-badge { background: rgba(248,81,73,0.15); color: var(--red); }
+.status-active .status-badge { background: rgba(88,166,255,0.15); color: var(--accent); }
+.status-ended .status-badge { background: rgba(72,79,88,0.3); color: var(--text-muted); }
+.agent-card .meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+.agent-card .meta div { margin-bottom: 2px; }
+.agent-card .actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* Buttons */
+btn, .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-approve { border-color: var(--green); color: var(--green); }
+.btn-approve:hover { background: rgba(63,185,80,0.15); }
+.btn-reject { border-color: var(--red); color: var(--red); }
+.btn-reject:hover { background: rgba(248,81,73,0.15); }
+.btn-send { border-color: var(--accent); color: var(--accent); }
+.btn-send:hover { background: rgba(88,166,255,0.15); }
+.btn-interrupt { border-color: var(--orange); color: var(--orange); }
+.btn-interrupt:hover { background: rgba(219,109,40,0.15); }
+.btn-small { padding: 2px 8px; font-size: 11px; }
+
+/* Send dialog */
+.send-dialog {
+  display: none;
+  margin-top: 8px;
+}
+.send-dialog.open { display: flex; gap: 6px; }
+.send-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.send-input:focus { outline: none; border-color: var(--accent); }
+
+/* Event feed */
+.event-feed {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+.event-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  transition: background 0.15s;
+}
+.event-row:last-child { border-bottom: none; }
+.event-row:hover { background: rgba(88,166,255,0.04); }
+.event-row.new { animation: flash 0.6s ease-out; }
+@keyframes flash {
+  0% { background: rgba(88,166,255,0.15); }
+  100% { background: transparent; }
+}
+.event-time {
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 55px;
+}
+.event-category {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 70px;
+  text-align: center;
+}
+.cat-completion { background: rgba(63,185,80,0.15); color: var(--green); }
+.cat-approval { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.cat-question { background: rgba(188,140,255,0.15); color: var(--purple); }
+.cat-error { background: rgba(248,81,73,0.15); color: var(--red); }
+.cat-auth { background: rgba(72,79,88,0.3); color: var(--text-muted); }
+.event-agent {
+  font-weight: 600;
+  min-width: 60px;
+  white-space: nowrap;
+}
+.event-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Messages */
+.message-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.message-card .route {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.message-card .arrow { color: var(--accent); }
+.message-card .content {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.message-card .msg-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.msg-pending { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.msg-delivered { background: rgba(63,185,80,0.15); color: var(--green); }
+.msg-rejected { background: rgba(248,81,73,0.15); color: var(--red); }
+
+/* Alerts */
+.alert-bar {
+  background: rgba(248,81,73,0.1);
+  border: 1px solid rgba(248,81,73,0.3);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: none;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.alert-bar.visible { display: flex; }
+.alert-bar .alert-text { flex: 1; }
+
+/* Empty states */
+.empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.tab {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: none;
+  background: none;
+  transition: all 0.15s;
+}
+.tab:hover { color: var(--text); background: var(--surface); }
+.tab.active { color: var(--text); background: var(--surface); }
+
+/* Heartbeat indicator */
+.heartbeat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+.heartbeat-dot.alive { background: var(--green); box-shadow: 0 0 4px var(--green); }
+.heartbeat-dot.stale { background: var(--yellow); }
+.heartbeat-dot.dead { background: var(--grey); }
+
+/* Parent/child badge */
+.parent-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(188,140,255,0.15);
+  color: var(--purple);
+  margin-left: 6px;
+}
+.child-count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(88,166,255,0.15);
+  color: var(--accent);
+  margin-left: 6px;
+}
+
+/* Work summary */
+.work-summary {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  margin-top: 2px;
+  padding: 4px 8px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 4px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Event work summary */
+.event-summary {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  padding: 2px 0;
+}
+
+/* Start/stop category */
+.cat-start { background: rgba(88,166,255,0.15); color: var(--accent); }
+.cat-stop { background: rgba(72,79,88,0.3); color: var(--text-muted); }
+
+/* Preferences panel */
+.pref-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+}
+.pref-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.pref-row:last-child { border-bottom: none; }
+.pref-key {
+  font-weight: 600;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  min-width: 120px;
+}
+.pref-value {
+  flex: 1;
+  color: var(--text-muted);
+}
+.pref-add {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pref-input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+.pref-input:focus { outline: none; border-color: var(--accent); }
+
+/* Tasks */
+.task-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.task-card .task-id { color: var(--text-muted); font-family: 'SF Mono','Fira Code',monospace; font-size: 12px; min-width: 30px; }
+.task-card .task-title { flex: 1; font-weight: 500; }
+.task-card .task-priority { font-size: 11px; padding: 1px 6px; border-radius: 4px; }
+.task-card .task-priority.p-high { background: rgba(248,81,73,0.15); color: var(--red); }
+.task-card .task-priority.p-medium { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.task-card .task-priority.p-low { background: rgba(72,79,88,0.3); color: var(--text-muted); }
+.task-card .task-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.task-card .ts-pending { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.task-card .ts-in_progress { background: rgba(88,166,255,0.15); color: var(--accent); }
+.task-card .ts-done { background: rgba(63,185,80,0.15); color: var(--green); }
+.task-card .ts-blocked { background: rgba(248,81,73,0.15); color: var(--red); }
+.task-deps { font-size: 11px; color: var(--text-muted); }
+
+/* Spawn dialog */
+.spawn-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  display: none;
+}
+.spawn-panel.open { display: block; }
+.spawn-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.spawn-row label {
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 60px;
+}
+.spawn-row select, .spawn-row input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+.spawn-row select:focus, .spawn-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.spawn-row input { flex: 1; }
+
+/* Responsive */
+@media (max-width: 600px) {
+  .agents-grid { grid-template-columns: 1fr; }
+  .event-row { font-size: 12px; gap: 8px; }
+  .event-agent { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>
+      <span class="status-dot" id="status-dot"></span>
+      Agent Notify
+    </h1>
+    <span id="health-info">connecting...</span>
+  </header>
+
+  <div class="alert-bar" id="alert-bar">
+    <span style="font-size:16px">&#x26a0;&#xfe0f;</span>
+    <span class="alert-text" id="alert-text"></span>
+    <button class="btn btn-small" onclick="dismissAlert()">Dismiss</button>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Agents</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="agents-count" class="badge" style="background:var(--surface);color:var(--text-muted)">0</span>
+        <button class="btn btn-send" onclick="toggleSpawn()">Spawn</button>
+      </div>
+    </div>
+    <div class="spawn-panel" id="spawn-panel">
+      <div class="spawn-row">
+        <label>Agent</label>
+        <select id="spawn-agent">
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+          <option value="gemini">Gemini</option>
+        </select>
+      </div>
+      <div class="spawn-row">
+        <label>Dir</label>
+        <input id="spawn-cwd" placeholder="Working directory (optional)">
+      </div>
+      <div class="spawn-row">
+        <label>Prompt</label>
+        <input id="spawn-prompt" placeholder="Task prompt (optional)" onkeydown="if(event.key==='Enter')doSpawn()">
+      </div>
+      <div class="spawn-row" style="justify-content:flex-end">
+        <button class="btn" onclick="toggleSpawn()">Cancel</button>
+        <button class="btn btn-approve" onclick="doSpawn()">Launch</button>
+      </div>
+    </div>
+    <div class="agents-grid" id="agents-grid">
+      <div class="empty">No agents tracked yet</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Event Feed</h2>
+      <div class="tabs">
+        <button class="tab active" data-filter="all">All</button>
+        <button class="tab" data-filter="completion">Completion</button>
+        <button class="tab" data-filter="approval">Approval</button>
+        <button class="tab" data-filter="error">Error</button>
+        <button class="tab" data-filter="start">Start</button>
+        <button class="tab" data-filter="stop">Stop</button>
+      </div>
+    </div>
+    <div class="event-feed" id="event-feed">
+      <div class="empty">Waiting for events...</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Messages</h2>
+      <span id="pending-count" class="badge msg-pending" style="display:none">0 pending</span>
+    </div>
+    <div id="messages-list">
+      <div class="empty" style="background:var(--surface);border:1px solid var(--border);border-radius:8px">No agent-to-agent messages</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Tasks</h2>
+      <span id="tasks-count" class="badge" style="background:var(--surface);color:var(--text-muted)">0</span>
+    </div>
+    <div id="tasks-panel">
+      <div class="empty" style="background:var(--surface);border:1px solid var(--border);border-radius:8px">No tasks</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Routing Rules</h2>
+      <span id="rules-count" class="badge" style="background:var(--surface);color:var(--text-muted)">0</span>
+    </div>
+    <div class="pref-panel" id="rules-panel">
+      <div class="empty">No routing rules</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Shared Context</h2>
+      <span id="context-count" class="badge" style="background:var(--surface);color:var(--text-muted)">0</span>
+    </div>
+    <div class="pref-panel" id="context-panel">
+      <div class="empty">No shared context variables</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Preferences</h2>
+    </div>
+    <div class="pref-panel" id="pref-panel">
+      <div class="empty">No preferences set</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';  // same origin
+let events = [];
+let agents = {};
+let messages = [];
+let preferences = {};
+let tasks = [];
+let contextVars = [];
+let rules = [];
+let eventFilter = 'all';
+let evtSource = null;
+
+// --- API helpers ---
+async function api(path, opts) {
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
+async function apiPost(path, body) {
+  return api(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+}
+
+// --- Init ---
+async function init() {
+  await Promise.all([loadHealth(), loadAgents(), loadEvents(), loadMessages(), loadTasks(), loadRules(), loadContext(), loadPreferences()]);
+  connectSSE();
+  document.querySelectorAll('.tab').forEach(t => {
+    t.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      eventFilter = t.dataset.filter;
+      renderEvents();
+    });
+  });
+}
+
+async function loadHealth() {
+  try {
+    const h = await api('/api/health');
+    document.getElementById('status-dot').className = 'status-dot ok';
+    const mins = Math.floor(h.uptime / 60);
+    const secs = Math.floor(h.uptime % 60);
+    document.getElementById('health-info').textContent =
+      `v${h.version} \u00b7 ${mins}m ${secs}s uptime \u00b7 ${h.sse_clients} clients \u00b7 ${h.agents_total} agents`;
+  } catch {
+    document.getElementById('status-dot').className = 'status-dot off';
+    document.getElementById('health-info').textContent = 'disconnected';
+  }
+}
+
+async function loadAgents() {
+  try {
+    const list = await api('/api/agents');
+    agents = {};
+    list.forEach(a => agents[a.session_id] = a);
+    renderAgents();
+  } catch {}
+}
+
+async function loadEvents() {
+  try {
+    events = await api('/api/events?limit=100');
+    renderEvents();
+  } catch {}
+}
+
+async function loadMessages() {
+  try {
+    messages = await api('/api/messages?limit=50');
+    renderMessages();
+  } catch {}
+}
+
+// --- SSE ---
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource(API + '/api/events/stream');
+
+  evtSource.addEventListener('notification', (e) => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === 'alert') {
+      showAlert(data.message);
+      return;
+    }
+
+    if (data.type === 'action' || data.type === 'spawn') {
+      loadAgents();
+      return;
+    }
+
+    if (data.type === 'message' || data.type === 'message_action') {
+      loadMessages();
+      return;
+    }
+
+    if (data.type === 'route') {
+      // After-work routing happened — refresh agents and tasks
+      loadAgents();
+      loadTasks();
+      return;
+    }
+
+    // Regular event
+    events.unshift(data);
+    if (events.length > 200) events.pop();
+    renderEvents(true);
+
+    // Update agent
+    if (data.session_id) {
+      loadAgents();
+    }
+  });
+
+  evtSource.onerror = () => {
+    document.getElementById('status-dot').className = 'status-dot off';
+    setTimeout(connectSSE, 3000);
+  };
+
+  evtSource.onopen = () => {
+    document.getElementById('status-dot').className = 'status-dot ok';
+    loadHealth();
+  };
+}
+
+// --- Render ---
+function renderAgents() {
+  const grid = document.getElementById('agents-grid');
+  const list = Object.values(agents);
+  document.getElementById('agents-count').textContent = list.length;
+
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty">No agents tracked yet</div>';
+    return;
+  }
+
+  grid.innerHTML = list.map(a => {
+    const statusClass = 'status-' + a.status;
+    const project = shortenPath(a.project_cwd);
+    const branch = a.git_branch ? ` [${a.git_branch}]` : '';
+    const waiting = a.status === 'waiting';
+    const ended = a.status === 'ended';
+
+    // Heartbeat liveness
+    const hbClass = heartbeatClass(a);
+
+    // Parent/child badges
+    const parentBadge = a.parent_session_id
+      ? `<span class="parent-badge">child of ${esc(a.parent_session_id.slice(0,8))}</span>`
+      : '';
+    const childCount = Object.values(agents).filter(x => x.parent_session_id === a.session_id).length;
+    const childBadge = childCount > 0
+      ? `<span class="child-count">${childCount} sub-agent${childCount > 1 ? 's' : ''}</span>`
+      : '';
+
+    // Time info
+    const lastSeen = timeAgo(a.last_seen);
+    const endedInfo = a.ended_at ? ` \u00b7 ended ${timeAgo(a.ended_at)}` : '';
+
+    return `
+      <div class="agent-card ${statusClass}">
+        <div class="top">
+          <span class="name">
+            <span class="heartbeat-dot ${hbClass}"></span>
+            ${esc(a.agent_name)}
+            ${parentBadge}${childBadge}
+          </span>
+          <span class="status-badge">${a.status}</span>
+        </div>
+        <div class="meta">
+          <div>${esc(project)}${esc(branch)}</div>
+          <div>${a.event_count} events \u00b7 ${a.last_event} \u00b7 ${lastSeen}${endedInfo}</div>
+        </div>
+        ${!ended ? `
+        <div class="actions">
+          ${waiting ? `
+            <button class="btn btn-approve" onclick="agentAction('${esc(a.session_id)}','approve')">Approve</button>
+            <button class="btn btn-reject" onclick="agentAction('${esc(a.session_id)}','reject')">Reject</button>
+          ` : ''}
+          <button class="btn btn-send" onclick="toggleSend('${esc(a.session_id)}')">Send</button>
+          <button class="btn btn-interrupt" onclick="agentAction('${esc(a.session_id)}','interrupt')">Interrupt</button>
+          <button class="btn btn-reject" onclick="agentStop('${esc(a.session_id)}')">Stop</button>
+        </div>
+        <div class="send-dialog" id="send-${a.session_id}">
+          <input class="send-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendText('${esc(a.session_id)}',this)">
+          <button class="btn btn-send btn-small" onclick="sendText('${esc(a.session_id)}',this.previousElementSibling)">Send</button>
+        </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderEvents(isNew) {
+  const feed = document.getElementById('event-feed');
+  const filtered = eventFilter === 'all' ? events : events.filter(e => e.category === eventFilter);
+
+  if (!filtered.length) {
+    feed.innerHTML = '<div class="empty">No events match filter</div>';
+    return;
+  }
+
+  feed.innerHTML = filtered.slice(0, 100).map((e, i) => {
+    const t = new Date(e.created_at);
+    const time = t.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    const catClass = 'cat-' + (e.category || 'completion');
+    const newClass = (isNew && i === 0) ? ' new' : '';
+    const title = e.title || e.message || '';
+    const summary = e.work_summary ? `<div class="event-summary">${esc(e.work_summary)}</div>` : '';
+
+    return `
+      <div class="event-row${newClass}">
+        <span class="event-time">${time}</span>
+        <span class="event-category ${catClass}">${e.category || 'event'}</span>
+        <span class="event-agent">${esc(e.agent_name || '')}</span>
+        <span class="event-title" title="${esc(title)}">${esc(title)}${summary}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderMessages() {
+  const container = document.getElementById('messages-list');
+  const pending = messages.filter(m => m.status === 'pending');
+  const badge = document.getElementById('pending-count');
+
+  if (pending.length) {
+    badge.textContent = pending.length + ' pending';
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  if (!messages.length) {
+    container.innerHTML = '<div class="empty" style="background:var(--surface);border:1px solid var(--border);border-radius:8px">No agent-to-agent messages</div>';
+    return;
+  }
+
+  container.innerHTML = messages.map(m => {
+    const statusClass = 'msg-' + m.status;
+    const isPending = m.status === 'pending';
+    return `
+      <div class="message-card">
+        <span class="route">${esc(m.from_session)} <span class="arrow">\u2192</span> ${esc(m.to_session)}</span>
+        <span class="content" title="${esc(m.content)}">${esc(m.content)}</span>
+        <span class="msg-status ${statusClass}">${m.status}</span>
+        ${isPending ? `
+          <button class="btn btn-approve btn-small" onclick="msgAction(${m.id},'approve')">Approve</button>
+          <button class="btn btn-reject btn-small" onclick="msgAction(${m.id},'reject')">Reject</button>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// --- Actions ---
+async function agentAction(sessionId, action) {
+  await apiPost(`/api/agents/${sessionId}/${action}`, {});
+  loadAgents();
+}
+
+async function agentStop(sessionId) {
+  if (!confirm('Stop this agent session?')) return;
+  await apiPost(`/api/agents/${sessionId}/stop`, {});
+  loadAgents();
+}
+
+function toggleSpawn() {
+  document.getElementById('spawn-panel').classList.toggle('open');
+}
+
+async function doSpawn() {
+  const agent = document.getElementById('spawn-agent').value;
+  const cwd = document.getElementById('spawn-cwd').value.trim();
+  const prompt = document.getElementById('spawn-prompt').value.trim();
+  const body = {agent};
+  if (cwd) body.cwd = cwd;
+  if (prompt) body.prompt = prompt;
+  const result = await apiPost('/api/agents/spawn', body);
+  if (result && result.status === 'spawned') {
+    document.getElementById('spawn-panel').classList.remove('open');
+    document.getElementById('spawn-cwd').value = '';
+    document.getElementById('spawn-prompt').value = '';
+    loadAgents();
+  } else {
+    alert('Spawn failed: ' + (result?.error || 'unknown error'));
+  }
+}
+
+function toggleSend(sessionId) {
+  const el = document.getElementById('send-' + sessionId);
+  el.classList.toggle('open');
+  if (el.classList.contains('open')) {
+    el.querySelector('input').focus();
+  }
+}
+
+async function sendText(sessionId, input) {
+  const text = input.value.trim();
+  if (!text) return;
+  await apiPost(`/api/agents/${sessionId}/send`, {text});
+  input.value = '';
+  document.getElementById('send-' + sessionId).classList.remove('open');
+}
+
+async function msgAction(msgId, action) {
+  await apiPost(`/api/messages/${msgId}/${action}`, {});
+  loadMessages();
+}
+
+// --- Alerts ---
+function showAlert(text) {
+  document.getElementById('alert-text').textContent = text;
+  document.getElementById('alert-bar').classList.add('visible');
+}
+
+function dismissAlert() {
+  document.getElementById('alert-bar').classList.remove('visible');
+}
+
+// --- Tasks ---
+async function loadTasks() {
+  try {
+    tasks = await api('/api/tasks');
+    renderTasks();
+  } catch {}
+}
+
+function renderTasks() {
+  const panel = document.getElementById('tasks-panel');
+  document.getElementById('tasks-count').textContent = tasks.length;
+  if (!tasks.length) {
+    panel.innerHTML = '<div class="empty" style="background:var(--surface);border:1px solid var(--border);border-radius:8px">No tasks</div>';
+    return;
+  }
+  panel.innerHTML = tasks.map(t => {
+    const deps = (t.dependencies || []).length ? `<span class="task-deps">deps: ${t.dependencies.join(', ')}</span>` : '';
+    return `
+      <div class="task-card">
+        <span class="task-id">#${t.id}</span>
+        <span class="task-priority p-${t.priority}">${t.priority}</span>
+        <span class="task-title">${esc(t.title)}</span>
+        ${deps}
+        <span class="task-status ts-${t.status}">${t.status}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// --- Routing Rules ---
+async function loadRules() {
+  try {
+    rules = await api('/api/rules');
+    renderRules();
+  } catch {}
+}
+
+function renderRules() {
+  const panel = document.getElementById('rules-panel');
+  document.getElementById('rules-count').textContent = rules.length;
+
+  let html = '';
+  if (rules.length) {
+    html = rules.map(r => {
+      const actionColors = {
+        next_task: 'var(--green)', handoff: 'var(--accent)', spawn: 'var(--purple)',
+        notify: 'var(--yellow)', pipeline: 'var(--orange)', approve: 'var(--text-muted)',
+        auto: 'var(--green)', block: 'var(--red)',
+      };
+      const color = actionColors[r.action] || 'var(--text-muted)';
+      const tmpl = r.template ? ` \u2014 ${esc(r.template.slice(0, 50))}` : '';
+      return `
+        <div class="pref-row">
+          <span style="font-size:12px;color:var(--text-muted);min-width:25px">#${r.id}</span>
+          <span style="font-size:12px;min-width:50px">${esc(r.from_agent)}</span>
+          <span style="font-size:12px;color:var(--text-muted);min-width:20px">\u2192</span>
+          <span style="font-size:12px;min-width:70px">${esc(r.event_type)}</span>
+          <span style="font-size:12px;font-weight:600;color:${color};min-width:70px">${esc(r.action)}</span>
+          <span class="pref-value" style="font-size:12px">${tmpl}</span>
+          <button class="btn btn-reject btn-small" onclick="deleteRule(${r.id})">Delete</button>
+        </div>
+      `;
+    }).join('');
+  } else {
+    html = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No routing rules configured</div>';
+  }
+
+  html += `
+    <div class="pref-add">
+      <select id="rule-action" class="pref-input" style="width:100px">
+        <option value="next_task">next_task</option>
+        <option value="handoff">handoff</option>
+        <option value="spawn">spawn</option>
+        <option value="notify">notify</option>
+        <option value="pipeline">pipeline</option>
+        <option value="auto">auto</option>
+        <option value="approve">approve</option>
+        <option value="block">block</option>
+      </select>
+      <select id="rule-event" class="pref-input" style="width:90px">
+        <option value="completion">completion</option>
+        <option value="stop">stop</option>
+        <option value="*">* (any)</option>
+      </select>
+      <input class="pref-input" id="rule-from" placeholder="from agent (*)" value="*" style="width:70px">
+      <input class="pref-input" id="rule-template" placeholder="template (optional)" style="flex:1"
+             onkeydown="if(event.key==='Enter')addRule()">
+      <button class="btn btn-send btn-small" onclick="addRule()">Add</button>
+    </div>
+  `;
+  panel.innerHTML = html;
+}
+
+async function addRule() {
+  const action = document.getElementById('rule-action').value;
+  const event_type = document.getElementById('rule-event').value;
+  const from_agent = document.getElementById('rule-from').value.trim() || '*';
+  const template = document.getElementById('rule-template').value.trim();
+  await apiPost('/api/rules', {from_agent, to_agent: '*', event_type, action, template, priority: 0});
+  loadRules();
+}
+
+async function deleteRule(id) {
+  await fetch(API + '/api/rules/' + id, {method: 'DELETE'});
+  loadRules();
+}
+
+// --- Context ---
+async function loadContext() {
+  try {
+    contextVars = await api('/api/context');
+    renderContext();
+  } catch {}
+}
+
+function renderContext() {
+  const panel = document.getElementById('context-panel');
+  document.getElementById('context-count').textContent = contextVars.length;
+
+  let html = '';
+  if (contextVars.length) {
+    html = contextVars.map(c => `
+      <div class="pref-row">
+        <span class="pref-key">${esc(c.key)}</span>
+        <span style="font-size:11px;color:var(--text-muted);min-width:60px">${esc(c.scope)}</span>
+        <span class="pref-value">${esc(c.value)}</span>
+        <span style="font-size:11px;color:var(--text-muted)">${c.updated_by ? 'by ' + esc(c.updated_by) : ''}</span>
+        <button class="btn btn-reject btn-small" onclick="deleteCtx('${esc(c.key)}','${esc(c.scope)}')">Delete</button>
+      </div>
+    `).join('');
+  } else {
+    html = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No shared context variables</div>';
+  }
+
+  html += `
+    <div class="pref-add">
+      <input class="pref-input" id="ctx-key" placeholder="key" style="width:100px">
+      <input class="pref-input" id="ctx-scope" placeholder="scope" value="global" style="width:80px">
+      <input class="pref-input" id="ctx-val" placeholder="value" style="flex:1"
+             onkeydown="if(event.key==='Enter')addCtx()">
+      <button class="btn btn-send btn-small" onclick="addCtx()">Set</button>
+    </div>
+  `;
+  panel.innerHTML = html;
+}
+
+async function addCtx() {
+  const key = document.getElementById('ctx-key').value.trim();
+  const value = document.getElementById('ctx-val').value.trim();
+  const scope = document.getElementById('ctx-scope').value.trim() || 'global';
+  if (!key) return;
+  await apiPost('/api/context', {key, value, scope, updated_by: 'dashboard'});
+  loadContext();
+}
+
+async function deleteCtx(key, scope) {
+  await fetch(API + '/api/context/' + encodeURIComponent(key) + '?scope=' + encodeURIComponent(scope), {method: 'DELETE'});
+  loadContext();
+}
+
+// --- Preferences ---
+async function loadPreferences() {
+  try {
+    preferences = await api('/api/preferences');
+    renderPreferences();
+  } catch {}
+}
+
+function renderPreferences() {
+  const panel = document.getElementById('pref-panel');
+  const keys = Object.keys(preferences);
+
+  let html = '';
+  if (keys.length) {
+    html = keys.map(k => `
+      <div class="pref-row">
+        <span class="pref-key">${esc(k)}</span>
+        <span class="pref-value">${esc(preferences[k])}</span>
+        <button class="btn btn-reject btn-small" onclick="deletePref('${esc(k)}')">Delete</button>
+      </div>
+    `).join('');
+  } else {
+    html = '<div style="color:var(--text-muted);font-size:13px;padding:4px 0">No preferences set</div>';
+  }
+
+  html += `
+    <div class="pref-add">
+      <input class="pref-input" id="pref-key" placeholder="key" style="width:120px">
+      <input class="pref-input" id="pref-val" placeholder="value" style="flex:1"
+             onkeydown="if(event.key==='Enter')addPref()">
+      <button class="btn btn-send btn-small" onclick="addPref()">Set</button>
+    </div>
+  `;
+  panel.innerHTML = html;
+}
+
+async function addPref() {
+  const key = document.getElementById('pref-key').value.trim();
+  const value = document.getElementById('pref-val').value.trim();
+  if (!key) return;
+  await apiPost('/api/preferences', {key, value});
+  loadPreferences();
+}
+
+async function deletePref(key) {
+  await fetch(API + '/api/preferences/' + encodeURIComponent(key), {method: 'DELETE'});
+  loadPreferences();
+}
+
+// --- Utils ---
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function shortenPath(p) {
+  if (!p) return '';
+  const home = '/Users/';
+  const idx = p.indexOf('/', home.length);
+  if (p.startsWith(home) && idx > 0) return '~' + p.slice(idx);
+  return p;
+}
+
+function heartbeatClass(agent) {
+  if (agent.status === 'ended') return 'dead';
+  const ref = agent.last_heartbeat || agent.last_seen;
+  if (!ref) return 'dead';
+  const age = (Date.now() - new Date(ref).getTime()) / 1000;
+  if (age < 120) return 'alive';
+  if (age < 600) return 'stale';
+  return 'dead';
+}
+
+function timeAgo(isoStr) {
+  if (!isoStr) return '';
+  const secs = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  if (secs < 60) return secs + 's ago';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
+// --- Start ---
+init();
+// Refresh health every 30s, agents every 15s (for heartbeat liveness)
+setInterval(loadHealth, 30000);
+setInterval(loadAgents, 15000);
+</script>
+</body>
+</html>

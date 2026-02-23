@@ -42,6 +42,30 @@ Usage:
   agent-notify --test-gemini         Gemini CLI completion notification
   agent-notify --test-say            Completion with TTS
   agent-notify --test-bell           Terminal bell
+  agent-notify daemon start           Start the background daemon
+  agent-notify daemon stop            Stop the daemon
+  agent-notify daemon status          Show daemon status and health
+  agent-notify agents list            List tracked agent sessions
+  agent-notify agents spawn [AGENT] [--prompt TEXT] [--cwd DIR]
+                                      Spawn a new agent in a terminal pane
+  agent-notify agents stop ID         Gracefully stop an agent session
+  agent-notify agents status ID       Show agent session details
+  agent-notify agents approve ID      Send approval keystroke to agent
+  agent-notify agents reject ID       Send rejection keystroke to agent
+  agent-notify agents send ID TEXT    Type text into agent's terminal
+  agent-notify agents interrupt ID    Send Ctrl-C to agent
+  agent-notify agents events ID       Show event history for a session
+  agent-notify messages list          List agent-to-agent messages
+  agent-notify messages send FROM TO CONTENT  Send message between agents
+  agent-notify messages approve ID    Approve and deliver a pending message
+  agent-notify messages reject ID     Reject a pending message
+  agent-notify rules list             List coordination rules
+  agent-notify rules add FROM TO TYPE ACTION  Add a rule (action: auto|approve|block)
+  agent-notify rules remove ID        Remove a coordination rule
+  agent-notify guard install           Install completion guard as Claude Code Stop hook
+  agent-notify guard status            Show active guard sessions
+  agent-notify mcp install             Register MCP server with Claude/Codex/Gemini
+  agent-notify mcp serve               Run the MCP stdio server directly
   agent-notify --setup               Auto-configure all detected agents
   agent-notify --setup-codex         Configure Codex CLI only
   agent-notify --setup-claude        Configure Claude Code only
@@ -57,7 +81,7 @@ Environment variables:
   CODEX_NOTIFY_QUIET=1         Suppress terminal echo line
   CODEX_ACTIVATE_BUNDLE        macOS: app bundle to activate on click (auto-detected)
   CODEX_SENDER_BUNDLE          macOS: sender bundle for -activate mode icon
-  CODEX_SUPPRESS_FRONTMOST     Set to 0 to always notify
+  CODEX_SUPPRESS_FRONTMOST=1   Suppress if editor is frontmost (default: 0)
   CODEX_NOTIFY_EVENT_TYPES     Event types to handle, comma-separated (default: *)
   CODEX_NOTIFY_EXEC_ONLY       Set to 0 for -activate instead of -execute (macOS)
   CODEX_NOTIFY_APP_ICON        Custom icon path or URL (macOS)
@@ -80,6 +104,8 @@ Environment variables:
   CODEX_NOTIFY_MIN_DURATION=N  Only notify if N+ seconds since session start
   CODEX_NOTIFY_ACTIVATE_CMD    Linux/Windows: command to focus the editor window
   CODEX_NOTIFY_GIT_BRANCH=1    Show git branch in notification (default: 1)
+  CODEX_NOTIFY_DAEMON_PORT     Daemon port (default: 7878)
+  CODEX_NOTIFY_DAEMON_DB       Daemon database path (default: ~/.codex/daemon.db)
 
 Per-project: place a .agent-notify.env in your project root to override any
 CODEX_NOTIFY_* variable for that repo.
@@ -312,6 +338,78 @@ PYSETUP
     bash "$installer"
     echo "Updated to agent-notify $latest_ver"
     exit 0
+    ;;
+  daemon)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for daemon commands" >&2
+      exit 1
+    fi
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    shift
+    exec python3 -c "
+import sys; sys.path.insert(0, '$script_dir')
+from daemon.cli import main; sys.argv = ['agent-notify daemon'] + sys.argv[1:]; main()
+" daemon "$@"
+    ;;
+  agents)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for agent commands" >&2
+      exit 1
+    fi
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    shift
+    exec python3 -c "
+import sys; sys.path.insert(0, '$script_dir')
+from daemon.cli import main; sys.argv = ['agent-notify agents'] + sys.argv[1:]; main()
+" agents "$@"
+    ;;
+  messages)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for message commands" >&2
+      exit 1
+    fi
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    shift
+    exec python3 -c "
+import sys; sys.path.insert(0, '$script_dir')
+from daemon.cli import main; sys.argv = ['agent-notify messages'] + sys.argv[1:]; main()
+" messages "$@"
+    ;;
+  rules)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for rule commands" >&2
+      exit 1
+    fi
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    shift
+    exec python3 -c "
+import sys; sys.path.insert(0, '$script_dir')
+from daemon.cli import main; sys.argv = ['agent-notify rules'] + sys.argv[1:]; main()
+" rules "$@"
+    ;;
+  guard)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for guard commands" >&2
+      exit 1
+    fi
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    shift
+    exec python3 -c "
+import sys; sys.path.insert(0, '$script_dir')
+from daemon.cli import main; sys.argv = ['agent-notify guard'] + sys.argv[1:]; main()
+" guard "$@"
+    ;;
+  mcp)
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for MCP commands" >&2
+      exit 1
+    fi
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    shift
+    exec python3 -c "
+import sys; sys.path.insert(0, '$script_dir')
+from daemon.cli import main; sys.argv = ['agent-notify mcp'] + sys.argv[1:]; main()
+" mcp "$@"
     ;;
 esac
 
@@ -551,6 +649,8 @@ notif = data.get("notification", {})
 has_claude = (
     "last_assistant_message" in data
     or "tool_name" in data
+    or hook_event in ("SessionStart", "SessionEnd", "SubagentStart",
+                      "SubagentStop", "TeammateIdle", "TaskCompleted")
     or (isinstance(notif, dict) and notif.get("type") in (
         "permission_prompt", "idle_prompt", "auth_success", "elicitation_dialog"
     ))
@@ -573,9 +673,69 @@ sid = clean(data.get("session_id", ""))
 group = f"{agent.lower()}-{sid}" if sid else ""
 
 # Categorize event with fine-grained types
-# Categories: completion, approval, question, error, auth
+# Categories: start, stop, completion, approval, question, error, auth
 category = "completion"
-if hook_event == "Notification":
+
+if hook_event == "SessionStart":
+    category = "start"
+    source = clean(data.get("source", "startup"))
+    model = clean(data.get("model", ""))
+    agent_type = clean(data.get("agent_type", ""))
+    label = f"Session started ({source})"
+    if agent_type:
+        label = f"Agent '{agent_type}' started ({source})"
+    if model:
+        label += f" [{model}]"
+    title = f"{agent}: {label}"
+    last = label
+
+elif hook_event == "SessionEnd":
+    category = "stop"
+    reason = clean(data.get("reason", "unknown"))
+    title = f"{agent}: Session ended ({reason})"
+    last = f"Session ended ({reason})"
+
+elif hook_event == "SubagentStart":
+    category = "start"
+    agent_type = clean(data.get("agent_type", "subagent"))
+    agent_id = clean(data.get("agent_id", ""))
+    title = f"{agent}: Spawned {agent_type} subagent"
+    last = f"Spawned {agent_type} subagent"
+    # Use agent_id as a child session
+    if agent_id:
+        sid = agent_id
+
+elif hook_event == "SubagentStop":
+    category = "stop"
+    agent_type = clean(data.get("agent_type", "subagent"))
+    agent_id = clean(data.get("agent_id", ""))
+    sub_last = clean(data.get("last_assistant_message", ""))
+    title = f"{agent}: {agent_type} subagent finished"
+    last = clip(sub_last, 140) if sub_last else f"{agent_type} subagent finished"
+    if agent_id:
+        sid = agent_id
+
+elif hook_event == "TeammateIdle":
+    category = "completion"
+    teammate = clean(data.get("teammate_name", "teammate"))
+    team = clean(data.get("team_name", ""))
+    title = f"{agent}: Teammate '{teammate}' idle"
+    last = f"Teammate '{teammate}' went idle"
+    if team:
+        last += f" (team: {team})"
+
+elif hook_event == "TaskCompleted":
+    category = "completion"
+    task_subj = clean(data.get("task_subject", ""))
+    teammate = clean(data.get("teammate_name", ""))
+    title = f"{agent}: Task completed"
+    if task_subj:
+        title = f"{agent}: {clip(task_subj, 80)}"
+    last = f"Task completed: {task_subj}" if task_subj else "Task completed"
+    if teammate:
+        last += f" (by {teammate})"
+
+elif hook_event == "Notification":
     # Default to approval for notification events
     category = "approval"
     if isinstance(notif, dict):
@@ -603,7 +763,7 @@ if hook_event == "Notification":
             category = "approval"
 
 elif hook_event in ("Stop", "AfterAgent"):
-    category = "completion"
+    category = "stop"
 
     # Detect error conditions from message content (Claude Code)
     if has_claude and last:
@@ -622,6 +782,12 @@ message = clip(last, 140)
 # Trim cwd for subtitle
 cwd_display = clip(cwd, 140)
 
+# Parent session ID (Claude Code sub-agents)
+# For SubagentStart/Stop, the main session_id is the parent
+parent_sid = clean(data.get("parent_session_id", ""))
+if hook_event in ("SubagentStart", "SubagentStop"):
+    parent_sid = clean(data.get("session_id", ""))
+
 print(title)
 print(message)
 print(cwd_display)
@@ -630,6 +796,7 @@ print(category)
 print(agent)
 print(sid)
 print(cwd)
+print(parent_sid)
 PY
   )
   if [[ ${#parsed[@]} -eq 0 ]]; then
@@ -643,6 +810,7 @@ PY
   agent_name="${parsed[5]:-}"
   session_id="${parsed[6]:-}"
   project_cwd="${parsed[7]:-}"
+  parent_session_id="${parsed[8]:-}"
 
 elif [[ -n "$payload" && "$payload" == "{"* ]]; then
   # ---- argv JSON: Codex CLI ----
@@ -709,6 +877,7 @@ print(category)
 print("Codex")
 print(thread_id)
 print(cwd)
+print("")  # no parent_session_id for Codex
 PY
   )
   if [[ ${#parsed[@]} -eq 0 ]]; then
@@ -722,6 +891,7 @@ PY
   agent_name="${parsed[5]:-Codex}"
   session_id="${parsed[6]:-}"
   project_cwd="${parsed[7]:-}"
+  parent_session_id="${parsed[8]:-}"
 
 else
   # ---- Manual title/message mode ----
@@ -746,7 +916,7 @@ _source_project_env "${project_cwd:-$PWD}"
 # ---------------------------------------------------------------------------
 quiet="${CODEX_NOTIFY_QUIET:-0}"
 sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
-suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
+suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-0}"
 exec_only="${CODEX_NOTIFY_EXEC_ONLY:-1}"
 app_icon="${CODEX_NOTIFY_APP_ICON:-}"
 say_enabled="${CODEX_NOTIFY_SAY:-0}"
@@ -841,9 +1011,9 @@ _default_approval_sound() {
 # Map fine-grained categories to sound categories
 _sound_for_category() {
   case "$1" in
-    completion|auth)  echo "completion" ;;
-    approval|question|error) echo "approval" ;;
-    *)                echo "completion" ;;
+    completion|auth|stop|start) echo "completion" ;;
+    approval|question|error)    echo "approval" ;;
+    *)                          echo "completion" ;;
   esac
 }
 
@@ -1118,6 +1288,81 @@ if [[ "${CODEX_NOTIFY_LOG:-0}" == "1" ]]; then
   fi
   printf '[%s] [%s] [%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${agent_name:-Manual}" "${sound_category:-completion}" "$log_line" >> "$log_file"
 fi
+
+# ---------------------------------------------------------------------------
+# Fire-and-forget POST to daemon (if running)
+# ---------------------------------------------------------------------------
+_post_to_daemon() {
+  local pid_file="$HOME/.codex/daemon.pid"
+  # Zero-cost gate: skip if daemon not running
+  [[ -f "$pid_file" ]] || return 0
+
+  local daemon_port="${CODEX_NOTIFY_DAEMON_PORT:-7878}"
+
+  # Detect multiplexer
+  local mux="" tmux_sock="" tmux_pane_id=""
+  local kitty_wid="" kitty_sock="" wezterm_pid="" wezterm_sock="" zellij_sess=""
+
+  if [[ -n "${TMUX:-}" ]]; then
+    mux="tmux"
+    tmux_sock="$(echo "$TMUX" | cut -d, -f1)"
+    tmux_pane_id="${TMUX_PANE:-}"
+  elif [[ -n "${ZELLIJ_SESSION_NAME:-}" ]]; then
+    mux="zellij"
+    zellij_sess="${ZELLIJ_SESSION_NAME:-}"
+  elif [[ -n "${KITTY_WINDOW_ID:-}" ]]; then
+    mux="kitty"
+    kitty_wid="${KITTY_WINDOW_ID:-}"
+    kitty_sock="${KITTY_LISTEN_ON:-}"
+  elif [[ -n "${WEZTERM_PANE:-}" ]]; then
+    mux="wezterm"
+    wezterm_pid="${WEZTERM_PANE:-}"
+    wezterm_sock="${WEZTERM_UNIX_SOCKET:-}"
+  fi
+
+  local bundle="${activate_bundle:-}"
+
+  # Capture work summary on completion (git diff --stat)
+  local work_summary=""
+  if [[ "${sound_category:-}" == "completion" || "${sound_category:-}" == "stop" ]] && [[ -n "${project_cwd:-}" && -d "${project_cwd:-}" ]]; then
+    work_summary="$(git -C "$project_cwd" diff --stat HEAD~1 2>/dev/null | tail -1 || true)"
+  fi
+
+  # Build JSON via python3 (safe escaping)
+  local json_payload
+  json_payload="$(python3 -c "
+import json, sys
+a = sys.argv
+print(json.dumps({
+    'agent_name': a[1], 'session_id': a[2], 'category': a[3],
+    'title': a[4], 'message': a[5], 'project_cwd': a[6],
+    'git_branch': a[7], 'parent_session_id': a[8],
+    'work_summary': a[9],
+    'terminal': {
+        'bundle_id': a[10], 'multiplexer': a[11],
+        'tmux_socket': a[12], 'tmux_pane': a[13],
+        'kitty_window_id': a[14], 'kitty_socket': a[15],
+        'wezterm_pane': a[16], 'wezterm_socket': a[17],
+        'zellij_session': a[18],
+    }
+}))
+" \
+    "${agent_name:-Manual}" "${session_id:-}" "${sound_category:-completion}" \
+    "$title" "$msg" "${project_cwd:-}" "${git_branch:-}" \
+    "${parent_session_id:-}" "$work_summary" \
+    "$bundle" "$mux" "$tmux_sock" "$tmux_pane_id" \
+    "$kitty_wid" "$kitty_sock" "$wezterm_pid" "$wezterm_sock" \
+    "$zellij_sess" 2>/dev/null)" || return 0
+
+  curl -s -X POST \
+    -H "Content-Type: application/json" \
+    --connect-timeout 1 --max-time 2 \
+    -d "$json_payload" \
+    "http://127.0.0.1:${daemon_port}/api/events" >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+
+_post_to_daemon
 
 # ---------------------------------------------------------------------------
 # Platform-specific: send desktop notification
