@@ -1,13 +1,25 @@
+<div align="center">
+
 # Agent Notify
 
-Cross-platform desktop notifications for AI coding agents — Codex CLI, Claude Code, and Gemini CLI.
+**Desktop notifications for AI coding agents — never miss a completion, approval, or error again.**
 
 [![shellcheck](https://github.com/paultendo/agent-notify/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/paultendo/agent-notify/actions/workflows/shellcheck.yml)
-[![release](https://img.shields.io/github/v/release/paultendo/agent-notify)](https://github.com/paultendo/agent-notify/releases/latest)
+[![release](https://img.shields.io/github/v/release/paultendo/agent-notify?style=flat-square)](https://github.com/paultendo/agent-notify/releases/latest)
+[![license](https://img.shields.io/github/license/paultendo/agent-notify?style=flat-square)](LICENSE)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20WSL-blue?style=flat-square)](#compatibility)
+[![deps](https://img.shields.io/badge/dependencies-zero-brightgreen?style=flat-square)](#features)
+[![agents](https://img.shields.io/badge/agents-Codex%20CLI%20%7C%20Claude%20Code%20%7C%20Gemini%20CLI-orange?style=flat-square)](#agents)
 
-## Quick start
+[Quick Start](#quick-start) &bull; [Features](#features) &bull; [Why agent-notify?](#why-agent-notify) &bull; [Compatibility](#compatibility) &bull; [Usage](#usage) &bull; [Configuration](#configuration) &bull; [FAQ](#faq)
 
-### Option A: Homebrew (macOS)
+</div>
+
+![Agent Notify](./assets/screenshot.png)
+
+## Quick Start
+
+### Homebrew (macOS)
 
 ```bash
 brew tap paultendo/agent-notify https://github.com/paultendo/agent-notify
@@ -15,22 +27,18 @@ brew install agent-notify
 agent-notify --setup
 ```
 
-### Option B: Manual install (macOS / Linux / Windows WSL)
-
-1) Clone or download the repo, then run the installer:
+### Manual install (macOS / Linux / Windows WSL)
 
 ```bash
 chmod +x ./install-agent-notify.sh
 ./install-agent-notify.sh
-```
-
-2) Configure your agents (automatic):
-
-```bash
 agent-notify --setup           # configure all detected agents
 ```
 
-Or configure individually:
+<details>
+<summary><strong>Platform recommendations & individual agent setup</strong></summary>
+
+Configure agents individually:
 
 ```bash
 agent-notify --setup-codex     # Codex CLI → ~/.codex/config.toml
@@ -38,7 +46,7 @@ agent-notify --setup-claude    # Claude Code → ~/.claude/settings.json
 agent-notify --setup-gemini    # Gemini CLI → ~/.gemini/settings.json
 ```
 
-3) Platform recommendations:
+Platform-specific packages:
 
 ```bash
 # macOS
@@ -53,46 +61,88 @@ sudo dnf install libnotify       # notify-send
 sudo dnf install espeak-ng       # optional TTS
 ```
 
-Restart your agent and run a task to verify notifications.
+</details>
+
+> [!TIP]
+> Restart your agent after setup and run a task to verify notifications are working.
 
 ## Features
+
+### Core
+
 - **Multi-agent** — Codex CLI, Claude Code, and Gemini CLI out of the box.
 - **Cross-platform** — macOS, Linux, and Windows (WSL / Git Bash).
-- **Smart event categories** — completion, approval, question, error, and auth events with distinct sounds.
+- **Zero dependencies** — pure Bash + Python 3 (already on your system).
+- **One-command setup** — `agent-notify --setup` configures all detected agents.
+- **Homebrew installable** — `brew install agent-notify`.
+- **Self-update** — `agent-notify --update` pulls the latest release.
+
+### Smart Notifications
+
+- **Event categories** — completion, approval, question, error, and auth events with distinct sounds.
 - **Git branch display** — shows current branch in notification subtitle.
-- **Terminal-aware focus** — auto-detects your terminal and focuses the right window on click. Supports VS Code, iTerm2, Ghostty, Warp, kitty, WezTerm, Alacritty, Hyper, and Terminal.app.
-- **Multiplexer support** — tmux, zellij, kitty, and WezTerm pane/window focus on notification click.
-- **Webhook integrations** — Slack, Discord, Telegram, ntfy, and generic JSON webhooks with auto-detection.
-- Clean, grouped notifications per session/thread.
-- Rich titles/messages extracted from agent JSON payloads.
-- Terminal echo: prints a summary line to stderr for logging/visibility.
-- **Terminal bell** — automatic fallback for headless/SSH sessions.
 - **Duration display** — shows how long the task took.
-- **Long-run threshold** — only notify if task exceeded N seconds.
+- **Long-run threshold** — only notify if the task exceeded N seconds (`CODEX_NOTIFY_MIN_DURATION`).
+- Rich titles/messages extracted from agent JSON payloads.
+- Clean, grouped notifications per session/thread.
+
+### Terminal Integration
+
+- **Click-to-focus** — auto-detects your terminal and focuses the right window on click. Supports 10 terminals: VS Code, iTerm2, Ghostty, Warp, kitty, WezTerm, Alacritty, Hyper, Terminal.app, and the Codex macOS app.
+- **Multiplexer support** — tmux, zellij, kitty, and WezTerm pane/window focus on notification click.
+- **Terminal bell** — automatic fallback for headless/SSH sessions.
+- Terminal echo: prints a summary line to stderr for logging/visibility.
+- **Stdout safety** — never writes to stdout during hook execution, safe for Claude Code and Gemini CLI.
+
+### Webhooks & Remote
+
+- **Slack** — rich attachments with color-coded event categories.
+- **Discord** — embeds with color and emoji.
+- **Telegram** — bot messages with chat ID.
+- **ntfy** — priority-based push notifications.
+- **Generic JSON** — works with any webhook endpoint.
+- All free, all auto-detected from the URL.
+
+### Power User
+
+- **Do Not Disturb / Focus awareness** — skip notifications when Focus mode is active.
+- **Schedule window** — only notify during configured hours.
+- **Rate limiting** — throttle rapid-fire notifications.
 - **Per-project config** — `.agent-notify.env` overrides per repo.
-- `--setup` flag for zero-friction config across all agents.
-- TTS (text-to-speech) via macOS `say`, Linux `espeak`/`spd-say`, or Windows SAPI.
-- Do Not Disturb / Focus awareness — skip notifications when Focus mode is active.
-- Schedule window — only notify during configured hours.
-- Rate limiting — throttle rapid-fire notifications.
-- Notification log — append history to `~/.codex/notify.log`.
-- Custom hooks — run any command on notification events.
-- Self-update via `--update`.
-- Homebrew installable.
+- **TTS (text-to-speech)** — via macOS `say`, Linux `espeak`/`spd-say`, or Windows SAPI.
+- **Notification log** — append history to `~/.codex/notify.log`.
+- **Custom hooks** — run any command on notification events.
 - macOS: fallback to `osascript` if `terminal-notifier` is missing.
 - Linux: fallback chain `notify-send` → `zenity` → terminal echo.
 - Windows: PowerShell toast notifications via WSL/Git Bash.
 
+## Why agent-notify?
+
+| | **agent-notify** | heyagent | claude-code-notification | cfngc4594/codex-notify |
+|---|---|---|---|---|
+| **Agents supported** | Codex CLI, Claude Code, Gemini CLI | Claude Code only | Claude Code only | Codex CLI only |
+| **Platforms** | macOS, Linux, WSL | macOS only | macOS, Linux | macOS, Linux |
+| **Zero dependencies** | Yes | No (Node.js) | No (Node.js) | Yes |
+| **Smart event categories** | 5 (completion, approval, question, error, auth) | — | — | — |
+| **Terminal click-to-focus** | 10 terminals + 4 multiplexers | — | — | — |
+| **Webhook integrations** | 5 services (all free) | — | — | — |
+| **Per-project config** | Yes | — | — | — |
+| **One-command setup** | `--setup` for all agents | Manual | Manual | Manual |
+| **Self-update** | `--update` | npm | npm | — |
+
 ## Compatibility
 
 ### Agents
+
 | Agent | Hook type | Config file | Events |
 |-------|-----------|-------------|--------|
 | **Codex CLI** | argv JSON | `~/.codex/config.toml` | `agent-turn-complete`, `approval-required` |
 | **Claude Code** | stdin JSON | `~/.claude/settings.json` | `Stop`, `Notification` (permission, idle, auth) |
 | **Gemini CLI** | stdin JSON | `~/.gemini/settings.json` | `AfterAgent`, `Notification` (tool permission) |
 
-### Event categories
+<details>
+<summary><strong>Event categories</strong></summary>
+
 | Category | Trigger | Sound | Examples |
 |----------|---------|-------|----------|
 | **completion** | Task finished | Glass / complete | `Stop`, `AfterAgent`, `agent-turn-complete` |
@@ -101,14 +151,22 @@ Restart your agent and run a task to verify notifications.
 | **error** | Session/API error | Sosumi / dialog-warning | Session limit, 401, API overload |
 | **auth** | Auth event | Glass / complete | `auth_success` |
 
-### Platforms
+</details>
+
+<details>
+<summary><strong>Platforms</strong></summary>
+
 | Platform | Notification | Sound | TTS |
 |----------|-------------|-------|-----|
 | **macOS** | terminal-notifier / osascript | afplay | say |
 | **Linux** | notify-send / zenity | paplay / aplay / ffplay | espeak / spd-say |
 | **Windows** (WSL) | PowerShell toast | PowerShell SoundPlayer | PowerShell SAPI |
 
-### Terminal click-to-focus (macOS)
+</details>
+
+<details>
+<summary><strong>Terminal click-to-focus (macOS)</strong></summary>
+
 | Terminal | Detection | Focus method |
 |----------|-----------|-------------|
 | **VS Code** | `TERM_PROGRAM` / default | `open -b` |
@@ -120,7 +178,11 @@ Restart your agent and run a task to verify notifications.
 | **Alacritty** | `TERM_PROGRAM` | AppleScript window match |
 | **Terminal.app** | `TERM_PROGRAM` | `open -b` |
 
-### Multiplexer support (macOS)
+</details>
+
+<details>
+<summary><strong>Multiplexer support (macOS)</strong></summary>
+
 | Multiplexer | Detection | Click action |
 |-------------|-----------|-------------|
 | **tmux** | `$TMUX` | `tmux select-window + select-pane` (with socket path) |
@@ -128,7 +190,10 @@ Restart your agent and run a task to verify notifications.
 | **kitty** | `$KITTY_WINDOW_ID` | `kitty @ focus-window --match id:N` |
 | **WezTerm** | `$WEZTERM_PANE` | `wezterm cli activate-pane --pane-id N` |
 
+</details>
+
 ## Requirements
+
 - `bash` 4.0+ (macOS, Linux, WSL, or Git Bash).
 - `python3` for JSON payload parsing and agent setup.
 - **macOS**: `terminal-notifier` optional but recommended.
@@ -163,7 +228,8 @@ agent-notify --update                # update to latest release
 
 ## Configuration
 
-### Environment variables
+<details>
+<summary><strong>Environment variables</strong></summary>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -196,6 +262,8 @@ agent-notify --update                # update to latest release
 | `CODEX_NOTIFY_MIN_DURATION` | `0` | Only notify if N+ seconds elapsed |
 | `CODEX_NOTIFY_ACTIVATE_CMD` | — | Linux/Windows: command to focus editor |
 | `CODEX_NOTIFY_GIT_BRANCH` | `1` | Show git branch in notification subtitle |
+
+</details>
 
 ### Webhook examples
 
@@ -230,32 +298,18 @@ CODEX_NOTIFY_MIN_DURATION=30
 
 Any `CODEX_NOTIFY_*` or `CODEX_SILENT` variable can be set. The file is sourced when the notification fires (the agent passes the project's `cwd` in the payload). The legacy `.codex-notify.env` filename is also supported.
 
-## Notes
-- **Terminal auto-detection**: on macOS, agent-notify detects your terminal from `TERM_PROGRAM`, `__CFBundleIdentifier`, and multiplexer environment variables. It builds the right click-to-focus command automatically — no configuration needed.
-- **tmux support**: when running inside tmux, clicking the notification focuses the correct tmux window and pane, using the socket path for reliable targeting.
-- **Git branch**: shown in the notification subtitle by default. Disable with `CODEX_NOTIFY_GIT_BRANCH=0`.
-- Some macOS versions ignore `-appIcon` and use the sender app icon instead.
-- If `terminal-notifier` is missing on macOS, the script falls back to `osascript`.
-- Without `python3`, JSON payloads produce a clear error; manual title/message mode still works.
-- **Stdout safety**: the script never writes to stdout during hook execution, so it's safe for Claude Code and Gemini CLI which parse hook stdout.
-
 ## FAQ
+
 - **How does terminal detection work?** Agent-notify reads `TERM_PROGRAM`, `__CFBundleIdentifier`, and multiplexer env vars (`TMUX`, `ZELLIJ`, `KITTY_WINDOW_ID`, `WEZTERM_PANE`) to auto-detect your terminal and build the right focus command. Override with `CODEX_ACTIVATE_BUNDLE`.
 - **Does it work with tmux?** Yes. Clicking the notification will select the correct tmux window and pane. It uses the tmux socket path for reliable targeting across sessions.
 - **Does it work with the Codex macOS app?** Yes. If the Codex macOS app (`com.openai.codex`) is frontmost when the notification fires, clicking it will activate the Codex app instead of VS Code. This is automatic — no configuration needed.
 - **Does it work over SSH?** Yes. Terminal bell (`CODEX_NOTIFY_BELL=auto`) fires automatically when no display server is detected. Many terminal emulators convert the bell to a native notification.
-- **Can I use different settings per project?** Yes. Drop a `.agent-notify.env` file in any project root. See "Per-project configuration" above.
+- **Can I use different settings per project?** Yes. Drop a `.agent-notify.env` file in any project root. See [Per-project configuration](#per-project-configuration) above.
 - **Which webhook services are supported?** Slack, Discord, Telegram, and ntfy have first-class formatters with rich messages, colors, and emoji. Any other URL receives a generic JSON payload. The service is auto-detected from the URL.
 
-## Security
-- All data stays local by default. Webhook support (`CODEX_NOTIFY_WEBHOOK`) is opt-in and sends notification title/message to the configured URL.
-- Payload is read from stdin/args and used only to build notification text.
-- Per-project `.agent-notify.env` only processes lines matching `CODEX_NOTIFY_*` or `CODEX_SILENT` for safety.
+<details>
+<summary><strong>Troubleshooting</strong></summary>
 
-## Screenshot
-![Agent Notify](./assets/screenshot.png)
-
-## Troubleshooting
 - **No notification**: check agent config files and OS notification permissions.
 - **No sound**: check `CODEX_SILENT` and `CODEX_NOTIFY_SOUND` (path or system sound name).
 - **macOS: click does not activate editor**: install `terminal-notifier` and verify `CODEX_ACTIVATE_BUNDLE`.
@@ -265,19 +319,45 @@ Any `CODEX_NOTIFY_*` or `CODEX_SILENT` variable can be set. The file is sourced 
 - **Clicking "Show" opens Script Editor**: set `CODEX_NOTIFY_EXEC_CMD="/usr/bin/open -b com.microsoft.VSCode"`.
 - **Wrong terminal focused on click**: set `CODEX_ACTIVATE_BUNDLE` to your terminal's bundle ID, or check that `TERM_PROGRAM` is set correctly in your shell.
 
-## Changelog
-- 1.1.0 - Smart event categories (completion, approval, question, error, auth). Git branch display. Terminal auto-detection (iTerm2, Ghostty, Warp, kitty, WezTerm, Alacritty). Multiplexer support (tmux, zellij). Rich webhook formatters (Slack, Discord, Telegram, ntfy). Session limit and API error detection.
-- 1.0.0 - Cross-platform (macOS, Linux, Windows WSL). Multi-agent (Codex CLI, Claude Code, Gemini CLI). Terminal bell, long-run threshold, duration display, per-project config. Renamed from codex-notify to agent-notify.
-- 0.6.0 - DND/Focus awareness, schedule window, rate limiting, notification log, custom hooks, `--update`, Homebrew formula.
-- 0.4.0 - TTS support (`say`), webhook notifications, `--test-say`.
-- 0.3.0 - Differentiated completion/approval sounds, `--setup`, `--test-approval`, default to all event types.
-- 0.2.0 - Terminal echo, `--version`/`--help`/`--test` flags, async sound, python3 guard.
-- 0.1.x - Initial releases, sound customization, screenshots.
+</details>
+
+## Notes
+
+- **Terminal auto-detection**: on macOS, agent-notify detects your terminal from `TERM_PROGRAM`, `__CFBundleIdentifier`, and multiplexer environment variables. It builds the right click-to-focus command automatically — no configuration needed.
+- **tmux support**: when running inside tmux, clicking the notification focuses the correct tmux window and pane, using the socket path for reliable targeting.
+- **Git branch**: shown in the notification subtitle by default. Disable with `CODEX_NOTIFY_GIT_BRANCH=0`.
+- Some macOS versions ignore `-appIcon` and use the sender app icon instead.
+- If `terminal-notifier` is missing on macOS, the script falls back to `osascript`.
+- Without `python3`, JSON payloads produce a clear error; manual title/message mode still works.
+
+> [!NOTE]
+> The script never writes to stdout during hook execution, so it's safe for Claude Code and Gemini CLI which parse hook stdout.
+
+## Security
+
+- All data stays local by default. Webhook support (`CODEX_NOTIFY_WEBHOOK`) is opt-in and sends notification title/message to the configured URL.
+- Payload is read from stdin/args and used only to build notification text.
+- Per-project `.agent-notify.env` only processes lines matching `CODEX_NOTIFY_*` or `CODEX_SILENT` for safety.
+
+<details>
+<summary><strong>Changelog</strong></summary>
+
+- **1.1.0** — Smart event categories (completion, approval, question, error, auth). Git branch display. Terminal auto-detection (iTerm2, Ghostty, Warp, kitty, WezTerm, Alacritty). Multiplexer support (tmux, zellij). Rich webhook formatters (Slack, Discord, Telegram, ntfy). Session limit and API error detection.
+- **1.0.0** — Cross-platform (macOS, Linux, Windows WSL). Multi-agent (Codex CLI, Claude Code, Gemini CLI). Terminal bell, long-run threshold, duration display, per-project config. Renamed from codex-notify to agent-notify.
+- **0.6.0** — DND/Focus awareness, schedule window, rate limiting, notification log, custom hooks, `--update`, Homebrew formula.
+- **0.4.0** — TTS support (`say`), webhook notifications, `--test-say`.
+- **0.3.0** — Differentiated completion/approval sounds, `--setup`, `--test-approval`, default to all event types.
+- **0.2.0** — Terminal echo, `--version`/`--help`/`--test` flags, async sound, python3 guard.
+- **0.1.x** — Initial releases, sound customization, screenshots.
+
+</details>
 
 ## License
+
 MIT. See `LICENSE`.
 
 ## Uninstall
+
 - Remove hooks from your agent config files:
   - Codex CLI: remove `notify` line from `~/.codex/config.toml`
   - Claude Code: remove hooks from `~/.claude/settings.json`
