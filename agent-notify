@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.0.0"
+VERSION="1.1.0"
 
 # ---------------------------------------------------------------------------
 # Platform detection
@@ -55,7 +55,7 @@ Environment variables:
   CODEX_NOTIFY_APPROVAL_SOUND  Approval sound (default: Sosumi / dialog-warning.oga)
   CODEX_SILENT=1               Disable sound
   CODEX_NOTIFY_QUIET=1         Suppress terminal echo line
-  CODEX_ACTIVATE_BUNDLE        macOS: app bundle to activate on click
+  CODEX_ACTIVATE_BUNDLE        macOS: app bundle to activate on click (auto-detected)
   CODEX_SENDER_BUNDLE          macOS: sender bundle for -activate mode icon
   CODEX_SUPPRESS_FRONTMOST     Set to 0 to always notify
   CODEX_NOTIFY_EVENT_TYPES     Event types to handle, comma-separated (default: *)
@@ -64,7 +64,10 @@ Environment variables:
   CODEX_NOTIFY_SAY=1           Speak notification via TTS
   CODEX_NOTIFY_SAY_VOICE       Voice for TTS (e.g. Daniel, espeak voice)
   CODEX_NOTIFY_SAY_RATE        Speech rate (words per minute, macOS only)
-  CODEX_NOTIFY_WEBHOOK         Webhook URL (Discord, Slack, etc.)
+  CODEX_NOTIFY_WEBHOOK         Webhook URL (Discord, Slack, Telegram, ntfy, generic)
+  CODEX_NOTIFY_WEBHOOK_PRESET  Webhook format: slack, discord, telegram, ntfy, generic
+  CODEX_NOTIFY_TELEGRAM_CHAT_ID  Telegram chat ID (required for telegram preset)
+  CODEX_NOTIFY_NTFY_TOPIC      ntfy topic (can also be set via URL)
   CODEX_NOTIFY_EXEC_CMD        Override the click-execute command
   CODEX_NOTIFY_DND=1           Skip notification when Focus/DND is active
   CODEX_NOTIFY_SCHEDULE        Notify only during HH:MM-HH:MM window
@@ -76,6 +79,7 @@ Environment variables:
   CODEX_NOTIFY_BELL            Terminal bell: 0=off, 1=always, auto=headless (default: auto)
   CODEX_NOTIFY_MIN_DURATION=N  Only notify if N+ seconds since session start
   CODEX_NOTIFY_ACTIVATE_CMD    Linux/Windows: command to focus the editor window
+  CODEX_NOTIFY_GIT_BRANCH=1    Show git branch in notification (default: 1)
 
 Per-project: place a .agent-notify.env in your project root to override any
 CODEX_NOTIFY_* variable for that repo.
@@ -85,13 +89,13 @@ HELP
     exit 0
     ;;
   --test)
-    exec "$0" '{"type":"agent-turn-complete","last-assistant-message":"Test notification from agent-notify","input-messages":["This is a test"],"thread-id":"test"}'
+    exec "$0" '{"type":"agent-turn-complete","last-assistant-message":"Test notification from agent-notify","input-messages":["This is a test"],"thread-id":"test","cwd":"'"$PWD"'"}'
     ;;
   --test-say)
-    CODEX_NOTIFY_SAY=1 exec "$0" '{"type":"agent-turn-complete","last-assistant-message":"Test notification from agent-notify","input-messages":["This is a test"],"thread-id":"test"}'
+    CODEX_NOTIFY_SAY=1 exec "$0" '{"type":"agent-turn-complete","last-assistant-message":"Test notification from agent-notify","input-messages":["This is a test"],"thread-id":"test","cwd":"'"$PWD"'"}'
     ;;
   --test-approval)
-    exec "$0" '{"type":"approval-required","last-assistant-message":"Waiting for approval","input-messages":["approve?"],"thread-id":"test"}'
+    exec "$0" '{"type":"approval-required","last-assistant-message":"Waiting for approval","input-messages":["approve?"],"thread-id":"test","cwd":"'"$PWD"'"}'
     ;;
   --test-bell)
     printf '\a' >&2
@@ -99,17 +103,17 @@ HELP
     exit 0
     ;;
   --test-claude)
-    echo '{"hook_event_name":"Stop","session_id":"test-claude","cwd":"/tmp","last_assistant_message":"Test Claude Code notification from agent-notify"}' \
+    echo '{"hook_event_name":"Stop","session_id":"test-claude","cwd":"'"$PWD"'","last_assistant_message":"Test Claude Code notification from agent-notify"}' \
       | "$0"
     exit $?
     ;;
   --test-claude-approval)
-    echo '{"hook_event_name":"Notification","session_id":"test-claude","cwd":"/tmp","notification":{"type":"permission_prompt","title":"Permission needed","message":"Claude wants to run a command"}}' \
+    echo '{"hook_event_name":"Notification","session_id":"test-claude","cwd":"'"$PWD"'","notification":{"type":"permission_prompt","title":"Permission needed","message":"Claude wants to run a command"}}' \
       | "$0"
     exit $?
     ;;
   --test-gemini)
-    echo '{"hook_event_name":"AfterAgent","session_id":"test-gemini","cwd":"/tmp","prompt_response":"Test Gemini CLI notification from agent-notify"}' \
+    echo '{"hook_event_name":"AfterAgent","session_id":"test-gemini","cwd":"'"$PWD"'","prompt_response":"Test Gemini CLI notification from agent-notify"}' \
       | "$0"
     exit $?
     ;;
@@ -343,6 +347,163 @@ _source_project_env() {
 }
 
 # ---------------------------------------------------------------------------
+# Git branch detection
+# ---------------------------------------------------------------------------
+_get_git_branch() {
+  local dir="$1"
+  if [[ -z "$dir" ]]; then return; fi
+  local branch
+  branch="$(git -C "$dir" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  if [[ -n "$branch" && "$branch" != "HEAD" ]]; then
+    printf '%s' "$branch"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Terminal / multiplexer detection (macOS)
+# ---------------------------------------------------------------------------
+_detect_terminal_bundle() {
+  # Priority: CODEX_ACTIVATE_BUNDLE > __CFBundleIdentifier > TERM_PROGRAM > tmux env > fallback
+  if [[ -n "${CODEX_ACTIVATE_BUNDLE:-}" ]]; then
+    printf '%s' "$CODEX_ACTIVATE_BUNDLE"
+    return
+  fi
+  # __CFBundleIdentifier is set by Warp and some other terminals
+  if [[ -n "${__CFBundleIdentifier:-}" ]]; then
+    printf '%s' "$__CFBundleIdentifier"
+    return
+  fi
+  local tp="${TERM_PROGRAM:-}"
+  case "$tp" in
+    iTerm.app)       printf 'com.googlecode.iterm2' ;;
+    Apple_Terminal)  printf 'com.apple.Terminal' ;;
+    vscode)          printf 'com.microsoft.VSCode' ;;
+    WezTerm)         printf 'com.github.wez.wezterm' ;;
+    Alacritty)       printf 'org.alacritty' ;;
+    Hyper)           printf 'co.zeit.hyper' ;;
+    WarpTerminal)    printf 'dev.warp.Warp-Stable' ;;
+    *)
+      # Inside tmux? Try to get TERM_PROGRAM from tmux environment
+      if [[ -n "${TMUX:-}" ]]; then
+        local tmux_tp
+        tmux_tp="$(tmux show-environment TERM_PROGRAM 2>/dev/null | sed 's/^TERM_PROGRAM=//' || true)"
+        case "$tmux_tp" in
+          iTerm.app)       printf 'com.googlecode.iterm2' ;;
+          vscode)          printf 'com.microsoft.VSCode' ;;
+          WezTerm)         printf 'com.github.wez.wezterm' ;;
+          Alacritty)       printf 'org.alacritty' ;;
+          WarpTerminal)    printf 'dev.warp.Warp-Stable' ;;
+          *)               printf 'com.microsoft.VSCode' ;;
+        esac
+      elif [[ -n "${GHOSTTY_RESOURCES_DIR:-}" ]]; then
+        printf 'com.mitchellh.ghostty'
+      elif [[ -n "${KITTY_WINDOW_ID:-}" ]]; then
+        printf 'net.kovidgoyal.kitty'
+      elif [[ -n "${ITERM_SESSION_ID:-}" ]]; then
+        printf 'com.googlecode.iterm2'
+      elif [[ -n "${WEZTERM_PANE:-}" ]]; then
+        printf 'com.github.wez.wezterm'
+      else
+        printf 'com.microsoft.VSCode'
+      fi
+      ;;
+  esac
+}
+
+# Build the click-to-focus execute command for terminal-notifier
+_build_exec_cmd() {
+  local bundle="$1"
+  local cwd="${2:-}"
+
+  # User override takes priority
+  if [[ -n "${CODEX_NOTIFY_EXEC_CMD:-}" ]]; then
+    printf '%s' "$CODEX_NOTIFY_EXEC_CMD"
+    return
+  fi
+
+  # --- Multiplexer focus commands (macOS) ---
+  # tmux: select the right window and pane
+  if [[ -n "${TMUX:-}" ]]; then
+    local pane_id tmux_bin socket_path
+    pane_id="$(tmux display-message -p '#{pane_id}' 2>/dev/null || true)"
+    tmux_bin="$(command -v tmux 2>/dev/null || echo tmux)"
+    # TMUX format: "/private/tmp/tmux-501/default,12345,0"
+    socket_path="${TMUX%%,*}"
+    if [[ -n "$pane_id" && -n "$socket_path" ]]; then
+      printf "'%s' -S '%s' select-window -t '%s' \\; select-pane -t '%s'" \
+        "$tmux_bin" "$socket_path" "$pane_id" "$pane_id"
+      return
+    fi
+  fi
+
+  # zellij: focus the active tab
+  if [[ -n "${ZELLIJ:-}" ]]; then
+    local zellij_bin session_name tab_name
+    zellij_bin="$(command -v zellij 2>/dev/null || echo zellij)"
+    session_name="${ZELLIJ_SESSION_NAME:-}"
+    if [[ -n "$session_name" ]]; then
+      # Get active tab name from layout dump
+      tab_name="$(zellij action dump-layout 2>/dev/null \
+        | grep -E '^\s*tab\b.*focus=true' \
+        | sed -n 's/.*name="\([^"]*\)".*/\1/p' || true)"
+      if [[ -n "$tab_name" ]]; then
+        printf "'%s' -s '%s' action go-to-tab-name '%s'" \
+          "$zellij_bin" "$session_name" "$tab_name"
+        return
+      fi
+    fi
+  fi
+
+  # kitty: focus the right window via remote control
+  if [[ -n "${KITTY_WINDOW_ID:-}" && -n "${KITTY_LISTEN_ON:-}" ]]; then
+    local kitty_bin
+    kitty_bin="$(command -v kitty 2>/dev/null || echo kitty)"
+    printf "'%s' @ --to '%s' focus-window --match id:%s" \
+      "$kitty_bin" "$KITTY_LISTEN_ON" "$KITTY_WINDOW_ID"
+    return
+  fi
+
+  # WezTerm: focus the right pane
+  if [[ -n "${WEZTERM_PANE:-}" ]]; then
+    local wezterm_bin
+    wezterm_bin="$(command -v wezterm 2>/dev/null || echo wezterm)"
+    if [[ -n "${WEZTERM_UNIX_SOCKET:-}" ]]; then
+      printf "'%s' cli activate-pane --pane-id %s --unix-socket '%s'" \
+        "$wezterm_bin" "$WEZTERM_PANE" "$WEZTERM_UNIX_SOCKET"
+    else
+      printf "'%s' cli activate-pane --pane-id %s" "$wezterm_bin" "$WEZTERM_PANE"
+    fi
+    return
+  fi
+
+  # --- Standard terminal focus (macOS) ---
+  # For terminals that support window-title matching, use AppleScript to find
+  # the right window by folder name in the title bar
+  local folder_name=""
+  if [[ -n "$cwd" ]]; then
+    folder_name="${cwd##*/}"
+  fi
+
+  case "$bundle" in
+    com.mitchellh.ghostty|com.googlecode.iterm2|org.alacritty|co.zeit.hyper)
+      if [[ -n "$folder_name" ]]; then
+        # AppleScript: activate app, then find window whose title contains folder name
+        local safe_bundle safe_folder
+        safe_bundle="${bundle//\\/\\\\}"
+        safe_folder="${folder_name//\\/\\\\}"
+        safe_folder="${safe_folder//\"/\\\"}"
+        printf "osascript -e 'tell application id \"%s\"' -e 'activate' -e 'set _n to \"%s\"' -e 'repeat with w in windows' -e 'if name of w contains _n then' -e 'set index of w to 1' -e 'exit repeat' -e 'end if' -e 'end repeat' -e 'end tell'" \
+          "$safe_bundle" "$safe_folder"
+        return
+      fi
+      ;;
+  esac
+
+  # Default: just open the app
+  printf '/usr/bin/open -b %s' "$bundle"
+}
+
+# ---------------------------------------------------------------------------
 # Determine payload source and parse
 # ---------------------------------------------------------------------------
 payload="${1:-}"
@@ -409,36 +570,68 @@ else:
     last = clean(data.get("last_assistant_message", data.get("prompt_response", ""))) or "Task complete"
 
 title = f"{agent}: {clip(last, 90)}"
-cwd = clip(data.get("cwd", ""), 140)
+cwd = clean(data.get("cwd", ""))
 sid = clean(data.get("session_id", ""))
 group = f"{agent.lower()}-{sid}" if sid else ""
 
-# Categorize event
+# Categorize event with fine-grained types
+# Categories: completion, approval, question, error, auth
 category = "completion"
 if hook_event == "Notification":
+    # Default to approval for notification events
     category = "approval"
-    # Extract notification details if present (notif already parsed above)
     if isinstance(notif, dict):
+        notif_type = clean(notif.get("type", ""))
         notif_title = clean(notif.get("title", ""))
         notif_msg = clean(notif.get("message", ""))
+
+        # Fine-grained categorization
+        if notif_type == "permission_prompt":
+            category = "approval"
+        elif notif_type == "idle_prompt":
+            category = "question"
+        elif notif_type == "elicitation_dialog":
+            category = "question"
+        elif notif_type == "auth_success":
+            category = "auth"
+
         if notif_title:
             title = f"{agent}: {clip(notif_title, 90)}"
         if notif_msg:
             last = notif_msg
+
+        # Gemini ToolPermission
+        if notif_type == "ToolPermission" or "ToolPermission" in notif_title:
+            category = "approval"
+
 elif hook_event in ("Stop", "AfterAgent"):
     category = "completion"
-else:
-    category = "completion"
+
+    # Detect error conditions from message content (Claude Code)
+    if has_claude and last:
+        lower_last = last.lower()
+        if "session limit" in lower_last or "session limit has been reached" in lower_last:
+            category = "error"
+            title = f"{agent}: Session limit reached"
+        elif ("401" in lower_last and ("authentication" in lower_last or "/login" in lower_last)):
+            category = "error"
+            title = f"{agent}: Auth error (401)"
+        elif "api error" in lower_last or "overloaded" in lower_last:
+            category = "error"
 
 message = clip(last, 140)
 
+# Trim cwd for subtitle
+cwd_display = clip(cwd, 140)
+
 print(title)
 print(message)
-print(cwd)
+print(cwd_display)
 print(group)
 print(category)
 print(agent)
 print(sid)
+print(cwd)
 PY
   )
   if [[ ${#parsed[@]} -eq 0 ]]; then
@@ -451,6 +644,7 @@ PY
   sound_category="${parsed[4]:-completion}"
   agent_name="${parsed[5]:-}"
   session_id="${parsed[6]:-}"
+  project_cwd="${parsed[7]:-}"
 
 elif [[ -n "$payload" && "$payload" == "{"* ]]; then
   # ---- argv JSON: Codex CLI ----
@@ -502,7 +696,8 @@ else:
     inputs_text = str(inputs)
 
 message = clip(inputs_text, 140) or "Turn complete"
-cwd = clip(payload.get("cwd", ""), 140)
+cwd = clean(payload.get("cwd", ""))
+cwd_display = clip(cwd, 140)
 thread_id = clean(payload.get("thread-id", ""))
 group = f"codex-{thread_id}" if thread_id else ""
 
@@ -510,11 +705,12 @@ category = "completion" if event_type == "agent-turn-complete" else "approval"
 
 print(title)
 print(message)
-print(cwd)
+print(cwd_display)
 print(group)
 print(category)
 print("Codex")
 print(thread_id)
+print(cwd)
 PY
   )
   if [[ ${#parsed[@]} -eq 0 ]]; then
@@ -527,6 +723,7 @@ PY
   sound_category="${parsed[4]:-completion}"
   agent_name="${parsed[5]:-Codex}"
   session_id="${parsed[6]:-}"
+  project_cwd="${parsed[7]:-}"
 
 else
   # ---- Manual title/message mode ----
@@ -539,8 +736,10 @@ else
   fi
 fi
 
-# Extract project cwd from subtitle (which is the cwd from the payload)
-project_cwd="${subtitle}"
+# Extract project cwd (raw, unclipped) for git branch and per-project config
+if [[ -z "$project_cwd" ]]; then
+  project_cwd="${subtitle}"
+fi
 # Source per-project config
 _source_project_env "${project_cwd:-$PWD}"
 
@@ -548,17 +747,40 @@ _source_project_env "${project_cwd:-$PWD}"
 # Load configuration (after per-project env so overrides take effect)
 # ---------------------------------------------------------------------------
 quiet="${CODEX_NOTIFY_QUIET:-0}"
-activate_bundle="${CODEX_ACTIVATE_BUNDLE:-com.microsoft.VSCode}"
 sender_bundle="${CODEX_SENDER_BUNDLE:-com.microsoft.VSCode}"
 suppress_frontmost="${CODEX_SUPPRESS_FRONTMOST:-1}"
 exec_only="${CODEX_NOTIFY_EXEC_ONLY:-1}"
 app_icon="${CODEX_NOTIFY_APP_ICON:-}"
-exec_cmd="${CODEX_NOTIFY_EXEC_CMD:-}"
 say_enabled="${CODEX_NOTIFY_SAY:-0}"
 webhook_url="${CODEX_NOTIFY_WEBHOOK:-}"
+webhook_preset="${CODEX_NOTIFY_WEBHOOK_PRESET:-}"
 bell_mode="${CODEX_NOTIFY_BELL:-auto}"
 min_duration="${CODEX_NOTIFY_MIN_DURATION:-0}"
 activate_cmd="${CODEX_NOTIFY_ACTIVATE_CMD:-}"
+show_git_branch="${CODEX_NOTIFY_GIT_BRANCH:-1}"
+
+# Auto-detect terminal and build exec command (macOS)
+if [[ "$PLATFORM" == "macos" ]]; then
+  activate_bundle="$(_detect_terminal_bundle)"
+  exec_cmd="$(_build_exec_cmd "$activate_bundle" "${project_cwd:-$PWD}")"
+else
+  activate_bundle="${CODEX_ACTIVATE_BUNDLE:-com.microsoft.VSCode}"
+  exec_cmd="${CODEX_NOTIFY_EXEC_CMD:-}"
+fi
+
+# ---------------------------------------------------------------------------
+# Git branch: append to subtitle
+# ---------------------------------------------------------------------------
+if [[ "$show_git_branch" == "1" ]]; then
+  git_branch="$(_get_git_branch "${project_cwd:-$PWD}")"
+  if [[ -n "$git_branch" ]]; then
+    if [[ -n "$subtitle" ]]; then
+      subtitle="$subtitle [$git_branch]"
+    else
+      subtitle="[$git_branch]"
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # Platform-specific: resolve default sounds
@@ -618,10 +840,21 @@ _default_approval_sound() {
   esac
 }
 
+# Map fine-grained categories to sound categories
+_sound_for_category() {
+  case "$1" in
+    completion|auth)  echo "completion" ;;
+    approval|question|error) echo "approval" ;;
+    *)                echo "completion" ;;
+  esac
+}
+
+sound_type="$(_sound_for_category "$sound_category")"
+
 sound="${CODEX_NOTIFY_SOUND:-$(_default_completion_sound)}"
 sound="$(resolve_sound "$sound")"
 
-if [[ "$sound_category" == "approval" && "${CODEX_SILENT:-}" != "1" ]]; then
+if [[ "$sound_type" == "approval" && "${CODEX_SILENT:-}" != "1" ]]; then
   approval_sound="${CODEX_NOTIFY_APPROVAL_SOUND:-$(_default_approval_sound)}"
   sound="$(resolve_sound "$approval_sound")"
 fi
@@ -654,15 +887,6 @@ PY
         app_icon="file://$app_icon"
       fi
     fi
-  fi
-fi
-
-# ---------------------------------------------------------------------------
-# Platform-specific: exec command / activate command
-# ---------------------------------------------------------------------------
-if [[ "$PLATFORM" == "macos" ]]; then
-  if [[ -z "$exec_cmd" && -n "$activate_bundle" ]]; then
-    exec_cmd="/usr/bin/open -b ${activate_bundle}"
   fi
 fi
 
@@ -975,7 +1199,7 @@ _notify_fallback_macos() {
 
 _send_notification_linux() {
   local urgency="normal"
-  if [[ "$sound_category" == "approval" ]]; then
+  if [[ "$sound_category" == "approval" || "$sound_category" == "error" ]]; then
     urgency="critical"
   fi
 
@@ -1109,26 +1333,130 @@ if [[ "$say_enabled" == "1" && "${CODEX_SILENT:-}" != "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Webhook
+# Webhook (with preset formatters)
 # ---------------------------------------------------------------------------
 if [[ -n "$webhook_url" ]]; then
-  webhook_ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   if command -v python3 >/dev/null 2>&1; then
-    webhook_body="$(python3 -c "
+    webhook_body="$(python3 - "$title" "$msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_url" "${webhook_preset:-}" "${CODEX_NOTIFY_TELEGRAM_CHAT_ID:-}" "${CODEX_NOTIFY_NTFY_TOPIC:-}" "${session_id:-}" <<'PYWEBHOOK'
 import json, sys
-print(json.dumps({
-    'content': sys.argv[1] + ' \u2014 ' + sys.argv[2],
-    'title': sys.argv[1],
-    'message': sys.argv[2],
-    'agent': sys.argv[3],
-    'category': sys.argv[4],
-    'timestamp': sys.argv[5]
-}))" "$title" "$msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_ts")"
+from datetime import datetime, timezone
+
+title = sys.argv[1]
+message = sys.argv[2]
+agent = sys.argv[3]
+category = sys.argv[4]
+url = sys.argv[5]
+preset = sys.argv[6].lower() if sys.argv[6] else ""
+telegram_chat_id = sys.argv[7]
+ntfy_topic = sys.argv[8]
+session_id = sys.argv[9]
+ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# Status emoji and color
+emoji_map = {
+    "completion": "\u2705",  # check
+    "approval": "\u26a0\ufe0f",  # warning
+    "question": "\u2753",  # question
+    "error": "\ud83d\udd34",  # red circle
+    "auth": "\ud83d\udd10",  # lock
+}
+color_map = {
+    "completion": "#28a745",
+    "approval": "#ffc107",
+    "question": "#17a2b8",
+    "error": "#dc3545",
+    "auth": "#6c757d",
+}
+discord_color_map = {
+    "completion": 0x28a745,
+    "approval": 0xffc107,
+    "question": 0x17a2b8,
+    "error": 0xdc3545,
+    "auth": 0x6c757d,
+}
+
+emoji = emoji_map.get(category, "\u2139\ufe0f")
+color = color_map.get(category, "#6c757d")
+discord_color = discord_color_map.get(category, 0x6c757d)
+
+# Auto-detect preset from URL if not set
+if not preset:
+    if "hooks.slack.com" in url or "slack" in url:
+        preset = "slack"
+    elif "discord.com/api/webhooks" in url or "discordapp.com" in url:
+        preset = "discord"
+    elif "api.telegram.org" in url:
+        preset = "telegram"
+    elif "ntfy.sh" in url or "ntfy" in url:
+        preset = "ntfy"
+
+if preset == "slack":
+    payload = {
+        "attachments": [{
+            "color": color,
+            "title": f"{emoji} {title}",
+            "text": message,
+            "footer": f"agent-notify | {agent} | {category}",
+            "ts": int(datetime.now(timezone.utc).timestamp()),
+            "mrkdwn_in": ["text"],
+        }]
+    }
+elif preset == "discord":
+    payload = {
+        "username": "Agent Notify",
+        "embeds": [{
+            "title": f"{emoji} {title}",
+            "description": message,
+            "color": discord_color,
+            "footer": {"text": f"{agent} | {category}"},
+            "timestamp": ts,
+        }]
+    }
+elif preset == "telegram":
+    text = f"<b>{emoji} {title}</b>\n\n{message}\n\n<i>{agent} | {category}</i>"
+    payload = {
+        "chat_id": telegram_chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+    }
+elif preset == "ntfy":
+    # ntfy uses a different payload structure
+    priority_map = {"completion": 3, "approval": 4, "question": 4, "error": 5, "auth": 4}
+    tag_map = {"completion": "white_check_mark", "approval": "warning", "question": "question", "error": "rotating_light", "auth": "lock"}
+    payload = {
+        "topic": ntfy_topic or url.rstrip("/").split("/")[-1],
+        "title": title,
+        "message": message,
+        "priority": priority_map.get(category, 3),
+        "tags": [tag_map.get(category, "bell")],
+    }
+else:
+    # Generic JSON payload (backwards compatible)
+    payload = {
+        "content": f"{title} \u2014 {message}",
+        "title": title,
+        "message": message,
+        "agent": agent,
+        "category": category,
+        "timestamp": ts,
+    }
+
+print(json.dumps(payload))
+PYWEBHOOK
+    )"
   else
     webhook_body="{\"content\":\"$title\"}"
   fi
-  curl -s -X POST -H "Content-Type: application/json" \
-    -d "$webhook_body" "$webhook_url" >/dev/null 2>&1 &
+
+  # ntfy needs special URL handling (topic in URL, not body)
+  if [[ "${webhook_preset:-}" == "ntfy" || "$webhook_url" == *"ntfy"* ]]; then
+    # ntfy: POST to topic URL with JSON body
+    curl -s -X POST -H "Content-Type: application/json" \
+      -d "$webhook_body" "$webhook_url" >/dev/null 2>&1 &
+  else
+    curl -s -X POST -H "Content-Type: application/json" \
+      -d "$webhook_body" "$webhook_url" >/dev/null 2>&1 &
+  fi
   disown
 fi
 
