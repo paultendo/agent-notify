@@ -66,6 +66,9 @@ sudo dnf install espeak-ng       # optional TTS
 > [!TIP]
 > Restart your agent after setup and run a task to verify notifications are working.
 
+> [!NOTE]
+> **macOS click-to-focus** requires `terminal-notifier` (`brew install terminal-notifier`). For per-window focus (focusing the correct VS Code window, not just VS Code), grant accessibility access to **terminal-notifier.app** in System Settings → Privacy & Security → Accessibility.
+
 ## Features
 
 ### Core
@@ -196,7 +199,7 @@ sudo dnf install espeak-ng       # optional TTS
 
 - `bash` 4.0+ (macOS, Linux, WSL, or Git Bash).
 - `python3` for JSON payload parsing and agent setup.
-- **macOS**: `terminal-notifier` optional but recommended.
+- **macOS**: `terminal-notifier` required for click-to-focus (`brew install terminal-notifier`).
 - **Linux**: `libnotify` (`notify-send`) recommended.
 
 ## Usage
