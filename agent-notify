@@ -161,13 +161,34 @@ HELP
     self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
     config_dir="$HOME/.codex"
     config_file="$config_dir/config.toml"
-    mkdir -p "$config_dir"
-    if [[ -f "$config_file" ]] && grep -q '^notify' "$config_file"; then
-      echo "Codex CLI: notify hook already configured in $config_file"
-    else
-      printf '\nnotify = ["%s"]\n' "$self" >> "$config_file"
-      echo "Codex CLI: added notify hook to $config_file"
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "agent-notify: error: python3 required for Codex CLI setup" >&2
+      exit 1
     fi
+    mkdir -p "$config_dir"
+    python3 - "$self" "$config_file" <<'PYSETUP'
+import pathlib
+import re
+import sys
+
+script_path = sys.argv[1]
+config_path = pathlib.Path(sys.argv[2])
+content = config_path.read_text() if config_path.exists() else ""
+
+before_first_table = True
+for line in content.splitlines():
+    stripped = line.lstrip()
+    if stripped.startswith("["):
+        before_first_table = False
+    if before_first_table and re.match(r"notify\s*=", stripped):
+        print(f"Codex CLI: notify hook already configured in {config_path}")
+        sys.exit(0)
+
+prefix = f'notify = ["{script_path}"]\n'
+new_content = prefix if not content else f"{prefix}\n{content}"
+config_path.write_text(new_content)
+print(f"Codex CLI: added notify hook to {config_path}")
+PYSETUP
     exit 0
     ;;
   --setup-claude)
