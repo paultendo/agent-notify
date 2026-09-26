@@ -349,6 +349,7 @@ Any `CODEX_NOTIFY_*` or `CODEX_SILENT` variable can be set. The file is sourced 
 <details>
 <summary><strong>Changelog</strong></summary>
 
+- **1.2.0** — Formatting follows the destination: plain text on the desktop, in speech and on phones, real bold in the terminal, Slack mrkdwn, Telegram HTML and markdown for Discord; the generic webhook and your own hook get the text as written, with `title_plain` and `message_plain`. ntfy no longer shows raw JSON. `CODEX_NOTIFY_WEBHOOK_CATEGORIES` and `CODEX_NOTIFY_AGENT_NAME`. Per-window focus for all terminals. `--setup-codex` puts the hook at the root of the config and repairs configs an older version broke. An event passed as an argument no longer waits on stdin. Licence: AGPL-3.0-only (1.1.0 and earlier were MIT).
 - **1.1.0** — Smart event categories (completion, approval, question, error, auth). Git branch display. Terminal auto-detection (iTerm2, Ghostty, Warp, kitty, WezTerm, Alacritty). Multiplexer support (tmux, zellij). Rich webhook formatters (Slack, Discord, Telegram, ntfy). Session limit and API error detection.
 - **1.0.0** — Cross-platform (macOS, Linux, Windows WSL). Multi-agent (Codex CLI, Claude Code, Gemini CLI). Terminal bell, long-run threshold, duration display, per-project config. Renamed from codex-notify to agent-notify.
 - **0.6.0** — DND/Focus awareness, schedule window, rate limiting, notification log, custom hooks, `--update`, Homebrew formula.
