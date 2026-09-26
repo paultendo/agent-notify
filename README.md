@@ -253,6 +253,8 @@ agent-notify --update                # update to latest release
 | `CODEX_NOTIFY_WEBHOOK_PRESET` | auto | Webhook format: `slack`, `discord`, `telegram`, `ntfy`, `generic` |
 | `CODEX_NOTIFY_TELEGRAM_CHAT_ID` | — | Telegram chat ID (required for telegram preset) |
 | `CODEX_NOTIFY_NTFY_TOPIC` | — | ntfy topic (can also be in URL) |
+| `CODEX_NOTIFY_WEBHOOK_CATEGORIES` | all | Categories sent to the webhook, comma-separated: `completion`, `approval`, `question`, `error`, `auth`. `approval,question,error` makes a phone buzz only when you're needed |
+| `CODEX_NOTIFY_AGENT_NAME` | — | Your name for this agent, shown in titles, to tell agents running side by side apart (set it per project) |
 | `CODEX_NOTIFY_EXEC_CMD` | auto-detected | Override the click-execute command |
 | `CODEX_NOTIFY_DND=1` | — | Skip notifications during Focus/DND |
 | `CODEX_NOTIFY_SCHEDULE` | — | Notify only during `HH:MM-HH:MM` window |

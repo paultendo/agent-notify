@@ -92,6 +92,8 @@ Environment variables:
   CODEX_NOTIFY_WEBHOOK_PRESET  Webhook format: slack, discord, telegram, ntfy, generic
   CODEX_NOTIFY_TELEGRAM_CHAT_ID  Telegram chat ID (required for telegram preset)
   CODEX_NOTIFY_NTFY_TOPIC      ntfy topic (can also be set via URL)
+  CODEX_NOTIFY_WEBHOOK_CATEGORIES  Categories sent to the webhook, e.g. approval,question,error (default: all)
+  CODEX_NOTIFY_AGENT_NAME      Your name for this agent in titles, to tell parallel agents apart
   CODEX_NOTIFY_EXEC_CMD        Override the click-execute command
   CODEX_NOTIFY_DND=1           Skip notification when Focus/DND is active
   CODEX_NOTIFY_SCHEDULE        Notify only during HH:MM-HH:MM window
@@ -430,7 +432,8 @@ esac
 # IMPORTANT: never write to stdout — Claude Code and Gemini CLI parse it
 # ---------------------------------------------------------------------------
 stdin_json=""
-if [[ ! -t 0 ]]; then
+# Codex passes its event as an argument; stdin is read only otherwise, so a caller that leaves it open can't hang us
+if [[ ! -t 0 && "${1:-}" != "{"* ]]; then
   stdin_json="$(cat)"
 fi
 
@@ -938,6 +941,14 @@ bell_mode="${CODEX_NOTIFY_BELL:-auto}"
 min_duration="${CODEX_NOTIFY_MIN_DURATION:-0}"
 activate_cmd="${CODEX_NOTIFY_ACTIVATE_CMD:-}"
 show_git_branch="${CODEX_NOTIFY_GIT_BRANCH:-1}"
+
+# A name of your own for this agent, so notifications from agents running side by side can be told apart
+if [[ -n "${CODEX_NOTIFY_AGENT_NAME:-}" ]]; then
+  if [[ -n "$agent_name" && "$title" == "$agent_name:"* ]]; then
+    title="${CODEX_NOTIFY_AGENT_NAME}:${title#"$agent_name:"}"
+  fi
+  agent_name="$CODEX_NOTIFY_AGENT_NAME"
+fi
 
 # Auto-detect terminal and build exec command (macOS)
 if [[ "$PLATFORM" == "macos" ]]; then
@@ -1592,11 +1603,18 @@ fi
 # ---------------------------------------------------------------------------
 # Webhook (with preset formatters)
 # ---------------------------------------------------------------------------
+# Only the categories you list go to the webhook, so a phone can buzz for approvals and errors alone
+webhook_categories="${CODEX_NOTIFY_WEBHOOK_CATEGORIES:-}"
+if [[ -n "$webhook_url" && -n "$webhook_categories" && ",${webhook_categories// /}," != *",${sound_category:-completion},"* ]]; then
+  webhook_url=""
+fi
 if [[ -n "$webhook_url" ]]; then
+  webhook_target="$webhook_url"
   if command -v python3 >/dev/null 2>&1; then
-    webhook_body="$(python3 - "$title" "$msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_url" "${webhook_preset:-}" "${CODEX_NOTIFY_TELEGRAM_CHAT_ID:-}" "${CODEX_NOTIFY_NTFY_TOPIC:-}" "${session_id:-}" <<'PYWEBHOOK'
-import json, sys
+    webhook_out="$(python3 - "$title" "$msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_url" "${webhook_preset:-}" "${CODEX_NOTIFY_TELEGRAM_CHAT_ID:-}" "${CODEX_NOTIFY_NTFY_TOPIC:-}" "${session_id:-}" <<'PYWEBHOOK'
+import json, re, sys
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 title = sys.argv[1]
 message = sys.argv[2]
@@ -1608,6 +1626,19 @@ telegram_chat_id = sys.argv[7]
 ntfy_topic = sys.argv[8]
 session_id = sys.argv[9]
 ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+target = url
+
+def plain(s, limit=300):
+    """Markdown taken out, for a notification on a phone, and clipped at a word, not mid-word."""
+    s = re.sub(r"\x60{3}.*?(\x60{3}|$)", " ", s, flags=re.S)  # code fences (\x60 is a backtick; bash misreads a literal one here, and apostrophes too)
+    s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
+    s = re.sub(r"(?m)^\s{0,3}(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s?)", "", s)
+    s = re.sub(r"(\*\*|__|\*|\x60)", "", s)
+    s = " ".join(s.split())
+    if len(s) <= limit:
+        return s
+    cut = s[:limit].rsplit(" ", 1)[0].rstrip(",;:-")
+    return cut + "\u2026"
 
 # Status emoji and color
 emoji_map = {
@@ -1680,10 +1711,17 @@ elif preset == "ntfy":
     # ntfy uses a different payload structure
     priority_map = {"completion": 3, "approval": 4, "question": 4, "error": 5, "auth": 4}
     tag_map = {"completion": "white_check_mark", "approval": "warning", "question": "question", "error": "rotating_light", "auth": "lock"}
+    # ntfy reads a JSON body only when it is posted to the server root; posted to a topic, it shows the JSON as text
+    parts = urlsplit(url)
+    path = [p for p in parts.path.split("/") if p]
+    topic = ntfy_topic or (path[-1] if path else "")
+    if path and path[-1] == topic:
+        path = path[:-1]
+    target = urlunsplit((parts.scheme, parts.netloc, "/" + "/".join(path + [""]) if path else "/", "", ""))
     payload = {
-        "topic": ntfy_topic or url.rstrip("/").split("/")[-1],
-        "title": title,
-        "message": message,
+        "topic": topic,
+        "title": plain(title, 120),
+        "message": plain(message),
         "priority": priority_map.get(category, 3),
         "tags": [tag_map.get(category, "bell")],
     }
@@ -1698,22 +1736,18 @@ else:
         "timestamp": ts,
     }
 
+print(target)
 print(json.dumps(payload))
 PYWEBHOOK
     )"
+    webhook_target="${webhook_out%%$'\n'*}"
+    webhook_body="${webhook_out#*$'\n'}"
   else
     webhook_body="{\"content\":\"$title\"}"
   fi
 
-  # ntfy needs special URL handling (topic in URL, not body)
-  if [[ "${webhook_preset:-}" == "ntfy" || "$webhook_url" == *"ntfy"* ]]; then
-    # ntfy: POST to topic URL with JSON body
-    curl -s -X POST -H "Content-Type: application/json" \
-      -d "$webhook_body" "$webhook_url" >/dev/null 2>&1 &
-  else
-    curl -s -X POST -H "Content-Type: application/json" \
-      -d "$webhook_body" "$webhook_url" >/dev/null 2>&1 &
-  fi
+  curl -s -X POST -H "Content-Type: application/json" \
+    -d "$webhook_body" "$webhook_target" >/dev/null 2>&1 &
   disown
 fi
 

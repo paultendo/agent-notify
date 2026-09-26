@@ -16,6 +16,9 @@ jobs:
       - name: Run shellcheck
         run: |
           shellcheck -x install-agent-notify.sh agent-notify
+      - name: Parse check
+        run: bash -n agent-notify
       - name: Run regression tests
         run: |
           bash tests/setup-codex.sh
+          bash tests/webhook.sh
