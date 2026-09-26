@@ -105,6 +105,7 @@ sudo dnf install espeak-ng       # optional TTS
 - **ntfy** — priority-based push notifications.
 - **Generic JSON** — works with any webhook endpoint.
 - All free, all auto-detected from the URL.
+- **Formatting follows the destination.** An agent's markdown becomes Slack mrkdwn and Telegram HTML, and Discord gets it as written. Desktop notifications, speech and ntfy (on phones) get plain text, the terminal shows real bold, and the generic JSON and your own hook get the text as the agent wrote it, with `title_plain` and `message_plain` alongside.
 
 ### Power User
 
@@ -253,6 +254,7 @@ agent-notify --update                # update to latest release
 | `CODEX_NOTIFY_WEBHOOK_PRESET` | auto | Webhook format: `slack`, `discord`, `telegram`, `ntfy`, `generic` |
 | `CODEX_NOTIFY_TELEGRAM_CHAT_ID` | — | Telegram chat ID (required for telegram preset) |
 | `CODEX_NOTIFY_NTFY_TOPIC` | — | ntfy topic (can also be in URL) |
+| `CODEX_NOTIFY_NTFY_MARKDOWN` | `0` | `1` sends ntfy messages as markdown. ntfy renders it in its web app only; its phone apps would show the markers, so messages are plain text by default |
 | `CODEX_NOTIFY_WEBHOOK_CATEGORIES` | all | Categories sent to the webhook, comma-separated: `completion`, `approval`, `question`, `error`, `auth`. `approval,question,error` makes a phone buzz only when you're needed |
 | `CODEX_NOTIFY_AGENT_NAME` | — | Your name for this agent, shown in titles, to tell agents running side by side apart (set it per project) |
 | `CODEX_NOTIFY_EXEC_CMD` | auto-detected | Override the click-execute command |

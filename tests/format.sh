@@ -17,4 +17,11 @@ got="$(title '{"type":"agent-turn-complete","last-assistant-message":"The migrat
 [[ "$got" == *"…" && "$got" != *" …" && ${#got} -le 97 ]] || { echo "clip: got '$got'" >&2; exit 1; }
 [[ "$got" == "Codex: The migration renamed every column in the accounts table and rebuilt the indexes that…" ]] || { echo "clip at a word: got '$got'" >&2; exit 1; }
 
+# The text as written, and a terminal version with real bold, come after the fields the script already reads
+out="$(python3 "$parser" '{"type":"agent-turn-complete","last-assistant-message":"**Done.** Fixed `setup`.","input-messages":["x"]}')"
+raw="$(sed -n 10p <<< "$out")"
+styled="$(sed -n 12p <<< "$out")"
+[[ "$raw" == 'Codex: **Done.** Fixed `setup`.' ]] || { echo "raw: got '$raw'" >&2; exit 1; }
+[[ "$styled" == $'Codex: \e[1mDone.\e[22m Fixed \e[36msetup\e[39m.' ]] || { echo "styled: got '$styled'" >&2; exit 1; }
+
 echo "format: all cases pass"

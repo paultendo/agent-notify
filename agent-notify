@@ -92,6 +92,7 @@ Environment variables:
   CODEX_NOTIFY_WEBHOOK_PRESET  Webhook format: slack, discord, telegram, ntfy, generic
   CODEX_NOTIFY_TELEGRAM_CHAT_ID  Telegram chat ID (required for telegram preset)
   CODEX_NOTIFY_NTFY_TOPIC      ntfy topic (can also be set via URL)
+  CODEX_NOTIFY_NTFY_MARKDOWN=1 Send ntfy messages as markdown (rendered by the ntfy web app only)
   CODEX_NOTIFY_WEBHOOK_CATEGORIES  Categories sent to the webhook, e.g. approval,question,error (default: all)
   CODEX_NOTIFY_AGENT_NAME      Your name for this agent in titles, to tell parallel agents apart
   CODEX_NOTIFY_EXEC_CMD        Override the click-execute command
@@ -620,6 +621,10 @@ _build_exec_cmd() {
 payload="${1:-}"
 title=""
 msg="Task finished"
+raw_title=""
+raw_msg="Task finished"
+styled_title=""
+styled_msg="Task finished"
 subtitle=""
 group=""
 sound_category="completion"
@@ -661,6 +666,16 @@ def prose(val):
     s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", r"\1", s)  # bold; underscores stay, as in __init__
     s = re.sub(r"(?<![\w*])\*(\S.*?\S|\S)\*(?![\w*])", r"\1", s)  # italic
     s = re.sub(r"\x60([^\x60]+)\x60", r"\1", s)  # inline code
+    s = re.sub(r"\*\*|\x60+", "", s)  # markers a clipped message left unpaired
+    return " ".join(s.split())
+
+def styled(val):
+    """An agent message for a terminal: bold and code as terminal styles, other markdown out."""
+    s = "" if val is None else str(val)
+    s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
+    s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", "\x1b[1m\\1\x1b[22m", s)
+    s = re.sub(r"\x60([^\x60]+)\x60", "\x1b[36m\\1\x1b[39m", s)
+    s = re.sub(r"\*\*|\x60+", "", s)
     return " ".join(s.split())
 
 try:
@@ -689,14 +704,14 @@ has_claude = (
 
 if has_gemini:
     agent = "Gemini"
-    last = prose(data.get("prompt_response", "")) or "Task complete"
+    last = clean(data.get("prompt_response", "")) or "Task complete"
 elif has_claude:
     agent = "Claude"
-    last = prose(data.get("last_assistant_message", "")) or "Task complete"
+    last = clean(data.get("last_assistant_message", "")) or "Task complete"
 else:
     # Unknown stdin agent — try best guess
     agent = "Agent"
-    last = prose(data.get("last_assistant_message", data.get("prompt_response", ""))) or "Task complete"
+    last = clean(data.get("last_assistant_message", data.get("prompt_response", ""))) or "Task complete"
 
 title = f"{agent}: {clip(last, 90)}"
 cwd = clean(data.get("cwd", ""))
@@ -740,7 +755,7 @@ elif hook_event == "SubagentStop":
     category = "stop"
     agent_type = clean(data.get("agent_type", "subagent"))
     agent_id = clean(data.get("agent_id", ""))
-    sub_last = prose(data.get("last_assistant_message", ""))
+    sub_last = clean(data.get("last_assistant_message", ""))
     title = f"{agent}: {agent_type} subagent finished"
     last = clip(sub_last, 140) if sub_last else f"{agent_type} subagent finished"
     if agent_id:
@@ -819,8 +834,8 @@ parent_sid = clean(data.get("parent_session_id", ""))
 if hook_event in ("SubagentStart", "SubagentStop"):
     parent_sid = clean(data.get("session_id", ""))
 
-print(title)
-print(message)
+print(prose(title))  # shown on screen, spoken and sent to phones: no markdown
+print(prose(message))
 print(cwd_display)
 print(group)
 print(category)
@@ -828,6 +843,10 @@ print(agent)
 print(sid)
 print(cwd)
 print(parent_sid)
+print(title)  # as the agent wrote it, for webhooks and hooks that render or read it themselves
+print(message)
+print(styled(title))  # for a terminal
+print(styled(message))
 PY
   )
   if [[ ${#parsed[@]} -eq 0 ]]; then
@@ -842,6 +861,10 @@ PY
   session_id="${parsed[6]:-}"
   project_cwd="${parsed[7]:-}"
   parent_session_id="${parsed[8]:-}"
+  raw_title="${parsed[9]:-$title}"
+  raw_msg="${parsed[10]:-$msg}"
+  styled_title="${parsed[11]:-$title}"
+  styled_msg="${parsed[12]:-$msg}"
 
 elif [[ -n "$payload" && "$payload" == "{"* ]]; then
   # ---- argv JSON: Codex CLI ----
@@ -878,6 +901,16 @@ def prose(val):
     s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", r"\1", s)  # bold; underscores stay, as in __init__
     s = re.sub(r"(?<![\w*])\*(\S.*?\S|\S)\*(?![\w*])", r"\1", s)  # italic
     s = re.sub(r"\x60([^\x60]+)\x60", r"\1", s)  # inline code
+    s = re.sub(r"\*\*|\x60+", "", s)  # markers a clipped message left unpaired
+    return " ".join(s.split())
+
+def styled(val):
+    """An agent message for a terminal: bold and code as terminal styles, other markdown out."""
+    s = "" if val is None else str(val)
+    s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
+    s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", "\x1b[1m\\1\x1b[22m", s)
+    s = re.sub(r"\x60([^\x60]+)\x60", "\x1b[36m\\1\x1b[39m", s)
+    s = re.sub(r"\*\*|\x60+", "", s)
     return " ".join(s.split())
 
 try:
@@ -893,7 +926,7 @@ if not allowed:
 if allowed != ["*"] and event_type and event_type not in allowed:
     sys.exit(0)
 
-last = prose(payload.get("last-assistant-message", "")) or "Turn complete"
+last = clean(payload.get("last-assistant-message", "")) or "Turn complete"
 title = f"Codex: {clip(last, 90)}"
 
 inputs = payload.get("input-messages", [])
@@ -916,8 +949,8 @@ group = f"codex-{thread_id}" if thread_id else ""
 
 category = "completion" if event_type == "agent-turn-complete" else "approval"
 
-print(title)
-print(message)
+print(prose(title))  # shown on screen, spoken and sent to phones: no markdown
+print(prose(message))
 print(cwd_display)
 print(group)
 print(category)
@@ -925,6 +958,10 @@ print("Codex")
 print(thread_id)
 print(cwd)
 print("")  # no parent_session_id for Codex
+print(title)  # as the agent wrote it, for webhooks and hooks that render or read it themselves
+print(message)
+print(styled(title))  # for a terminal
+print(styled(message))
 PY
   )
   if [[ ${#parsed[@]} -eq 0 ]]; then
@@ -939,11 +976,19 @@ PY
   session_id="${parsed[6]:-}"
   project_cwd="${parsed[7]:-}"
   parent_session_id="${parsed[8]:-}"
+  raw_title="${parsed[9]:-$title}"
+  raw_msg="${parsed[10]:-$msg}"
+  styled_title="${parsed[11]:-$title}"
+  styled_msg="${parsed[12]:-$msg}"
 
 else
   # ---- Manual title/message mode ----
   title="${1:-Codex}"
   msg="${2:-Task finished}"
+  raw_title="$title"
+  raw_msg="$msg"
+  styled_title="$title"
+  styled_msg="$msg"
   agent_name="Manual"
   if [[ -n "${3:-}" ]]; then
     # Legacy: third arg was custom sound
@@ -978,6 +1023,8 @@ show_git_branch="${CODEX_NOTIFY_GIT_BRANCH:-1}"
 if [[ -n "${CODEX_NOTIFY_AGENT_NAME:-}" ]]; then
   if [[ -n "$agent_name" && "$title" == "$agent_name:"* ]]; then
     title="${CODEX_NOTIFY_AGENT_NAME}:${title#"$agent_name:"}"
+    raw_title="${CODEX_NOTIFY_AGENT_NAME}:${raw_title#"$agent_name:"}"
+    styled_title="${CODEX_NOTIFY_AGENT_NAME}:${styled_title#"$agent_name:"}"
   fi
   agent_name="$CODEX_NOTIFY_AGENT_NAME"
 fi
@@ -1314,6 +1361,8 @@ fi
 # Append duration to title if available
 if [[ -n "$elapsed_display" ]]; then
   title="$title ($elapsed_display)"
+  raw_title="$raw_title ($elapsed_display)"
+  styled_title="$styled_title ($elapsed_display)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -1321,9 +1370,15 @@ fi
 # ---------------------------------------------------------------------------
 stderr_echo() {
   if [[ "$quiet" != "1" ]]; then
-    local line="$title -- $msg"
+    # Bold and code styled when stderr is a terminal and NO_COLOR isn't set
+    local t="$title" m="$msg"
+    if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
+      t="$styled_title"
+      m="$styled_msg"
+    fi
+    local line="$t -- $m"
     if [[ -n "$subtitle" ]]; then
-      line="$title -- $msg ($subtitle)"
+      line="$t -- $m ($subtitle)"
     fi
     printf '[%s] agent-notify: %s\n' "$(date +%H:%M:%S)" "$line" >&2
   fi
@@ -1337,9 +1392,9 @@ stderr_echo
 if [[ "${CODEX_NOTIFY_LOG:-0}" == "1" ]]; then
   log_file="${CODEX_NOTIFY_LOG_FILE:-$HOME/.codex/notify.log}"
   mkdir -p "$(dirname "$log_file")"
-  log_line="$title -- $msg"
+  log_line="$raw_title -- $raw_msg"
   if [[ -n "$subtitle" ]]; then
-    log_line="$title -- $msg ($subtitle)"
+    log_line="$raw_title -- $raw_msg ($subtitle)"
   fi
   printf '[%s] [%s] [%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${agent_name:-Manual}" "${sound_category:-completion}" "$log_line" >> "$log_file"
 fi
@@ -1643,8 +1698,8 @@ fi
 if [[ -n "$webhook_url" ]]; then
   webhook_target="$webhook_url"
   if command -v python3 >/dev/null 2>&1; then
-    webhook_out="$(python3 - "$title" "$msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_url" "${webhook_preset:-}" "${CODEX_NOTIFY_TELEGRAM_CHAT_ID:-}" "${CODEX_NOTIFY_NTFY_TOPIC:-}" "${session_id:-}" <<'PYWEBHOOK'
-import json, re, sys
+    webhook_out="$(python3 - "$raw_title" "$raw_msg" "${agent_name:-Manual}" "${sound_category:-completion}" "$webhook_url" "${webhook_preset:-}" "${CODEX_NOTIFY_TELEGRAM_CHAT_ID:-}" "${CODEX_NOTIFY_NTFY_TOPIC:-}" "${session_id:-}" <<'PYWEBHOOK'
+import html, json, os, re, sys
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
@@ -1669,6 +1724,7 @@ def prose(val):
     s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", r"\1", s)  # bold; underscores stay, as in __init__
     s = re.sub(r"(?<![\w*])\*(\S.*?\S|\S)\*(?![\w*])", r"\1", s)  # italic
     s = re.sub(r"\x60([^\x60]+)\x60", r"\1", s)  # inline code
+    s = re.sub(r"\*\*|\x60+", "", s)  # markers a clipped message left unpaired
     return " ".join(s.split())
 
 def plain(s, limit=300):
@@ -1678,6 +1734,29 @@ def plain(s, limit=300):
         return s
     cut = s[:limit].rsplit(" ", 1)[0].rstrip(",;:-")
     return cut + "\u2026"
+
+
+def link(m, fmt):
+    return fmt % (json.dumps(m.group(2)), m.group(1))
+
+def to_telegram(md):
+    """Markdown as Telegram HTML: bold, italics, code and links kept, the rest escaped."""
+    s = html.escape(md, quote=False)
+    s = re.sub(r"\x60{3}[^\n]*\n(.*?)(\x60{3}|$)", r"<pre>\1</pre>", s, flags=re.S)
+    s = re.sub(r"\x60([^\x60\n]+)\x60", r"<code>\1</code>", s)
+    s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", r"<b>\1</b>", s)
+    s = re.sub(r"(?<![\w*])\*(\S.*?\S|\S)\*(?![\w*])", r"<i>\1</i>", s)
+    s = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", lambda m: link(m, "<a href=%s>%s</a>"), s)
+    s = re.sub(r"(?m)^\s{0,3}#{1,6}\s+(.*)$", r"<b>\1</b>", s)
+    return s
+
+def to_slack(md):
+    """Markdown as Slack mrkdwn: *bold*, <url|text> links, the rest escaped."""
+    s = md.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    s = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", r"<\2|\1>", s)
+    s = re.sub(r"\*\*(\S.*?\S|\S)\*\*", r"*\1*", s)
+    s = re.sub(r"(?m)^\s{0,3}#{1,6}\s+(.*)$", r"*\1*", s)
+    return s
 
 # Status emoji and color
 emoji_map = {
@@ -1721,8 +1800,8 @@ if preset == "slack":
     payload = {
         "attachments": [{
             "color": color,
-            "title": f"{emoji} {title}",
-            "text": message,
+            "title": f"{emoji} {plain(title, 150)}",
+            "text": to_slack(message),
             "footer": f"agent-notify | {agent} | {category}",
             "ts": int(datetime.now(timezone.utc).timestamp()),
             "mrkdwn_in": ["text"],
@@ -1732,15 +1811,15 @@ elif preset == "discord":
     payload = {
         "username": "Agent Notify",
         "embeds": [{
-            "title": f"{emoji} {title}",
-            "description": message,
+            "title": f"{emoji} {plain(title, 250)}",
+            "description": message,  # Discord renders markdown as the agent wrote it
             "color": discord_color,
             "footer": {"text": f"{agent} | {category}"},
             "timestamp": ts,
         }]
     }
 elif preset == "telegram":
-    text = f"<b>{emoji} {title}</b>\n\n{message}\n\n<i>{agent} | {category}</i>"
+    text = f"<b>{emoji} {html.escape(plain(title, 250), quote=False)}</b>\n\n{to_telegram(message)}\n\n<i>{html.escape(agent, quote=False)} | {category}</i>"
     payload = {
         "chat_id": telegram_chat_id,
         "text": text,
@@ -1760,10 +1839,13 @@ elif preset == "ntfy":
     payload = {
         "topic": topic,
         "title": plain(title, 120),
-        "message": plain(message),
+        # ntfy renders markdown in its web app only; its phone apps would show the markers, so plain unless asked
+        "message": message if os.environ.get("CODEX_NOTIFY_NTFY_MARKDOWN") == "1" else plain(message),
         "priority": priority_map.get(category, 3),
         "tags": [tag_map.get(category, "bell")],
     }
+    if os.environ.get("CODEX_NOTIFY_NTFY_MARKDOWN") == "1":
+        payload["markdown"] = True
 else:
     # Generic JSON payload (backwards compatible)
     payload = {
@@ -1773,6 +1855,8 @@ else:
         "agent": agent,
         "category": category,
         "timestamp": ts,
+        "title_plain": plain(title, 1000),
+        "message_plain": plain(message, 4000),
     }
 
 print(target)
@@ -1796,9 +1880,9 @@ fi
 notify_hook="${CODEX_NOTIFY_HOOK:-}"
 if [[ -n "$notify_hook" ]]; then
   if [[ "${CODEX_NOTIFY_DEBUG:-}" == "1" ]]; then
-    $notify_hook "$title" "$msg" "${sound_category:-completion}" "${agent_name:-Manual}" &
+    $notify_hook "$raw_title" "$raw_msg" "${sound_category:-completion}" "${agent_name:-Manual}" &
   else
-    $notify_hook "$title" "$msg" "${sound_category:-completion}" "${agent_name:-Manual}" >/dev/null 2>&1 &
+    $notify_hook "$raw_title" "$raw_msg" "${sound_category:-completion}" "${agent_name:-Manual}" >/dev/null 2>&1 &
   fi
   disown
 fi

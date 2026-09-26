@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # backticks in the test messages are literal markdown
 # The webhook formatter, run straight from the script: ntfy's target and body, and plain text for phones
 set -euo pipefail
 
@@ -44,6 +45,38 @@ python3 - "$(run "t" "$long" "Codex" completion "https://ntfy.sh/alerts" ntfy ""
 import json, sys
 m = json.loads(sys.argv[1].split("\n", 1)[1])["message"]
 assert m.endswith("word…") and len(m) <= 301, m
+PY
+
+# ntfy sends markdown only when asked, for its web app
+python3 - "$(CODEX_NOTIFY_NTFY_MARKDOWN=1 run "t" "**Done** in \`setup\`" "Codex" completion "https://ntfy.sh/alerts" ntfy "" "" "")" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1].split("\n", 1)[1])
+assert data["markdown"] is True and data["message"] == "**Done** in `setup`", data
+PY
+
+# Each service gets the agent's formatting in its own dialect
+formatted=$'**Done** in `setup` & <b>. See [the PR](https://example.com/pr).'
+python3 - "$(run "Codex: **Done**" "$formatted" "Codex" completion "https://api.telegram.org/botX/sendMessage" telegram "42" "" "")" <<'PY'
+import json, sys
+text = json.loads(sys.argv[1].split("\n", 1)[1])["text"]
+assert "<b>✅ Codex: Done</b>" in text, text
+assert '<b>Done</b> in <code>setup</code> &amp; &lt;b&gt;. See <a href="https://example.com/pr">the PR</a>.' in text, text
+PY
+python3 - "$(run "Codex: **Done**" "$formatted" "Codex" completion "https://hooks.slack.com/services/x" slack "" "" "")" <<'PY'
+import json, sys
+att = json.loads(sys.argv[1].split("\n", 1)[1])["attachments"][0]
+assert att["title"].endswith("Codex: Done"), att
+assert att["text"] == "*Done* in `setup` &amp; &lt;b&gt;. See <https://example.com/pr|the PR>.", att["text"]
+PY
+python3 - "$(run "Codex: **Done**" "$formatted" "Codex" completion "https://discord.com/api/webhooks/x" discord "" "" "")" <<'PY'
+import json, sys
+embed = json.loads(sys.argv[1].split("\n", 1)[1])["embeds"][0]
+assert embed["description"] == "**Done** in `setup` & <b>. See [the PR](https://example.com/pr).", embed
+PY
+python3 - "$(run "Codex: **Done**" "$formatted" "Codex" completion "https://example.com/hook" generic "" "" "")" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1].split("\n", 1)[1])
+assert data["message"].startswith("**Done** in `setup`") and data["message_plain"].startswith("Done in setup &"), data
 PY
 
 # Other presets post to the URL as given
