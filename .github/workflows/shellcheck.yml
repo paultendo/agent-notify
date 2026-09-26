@@ -22,3 +22,4 @@ jobs:
         run: |
           bash tests/setup-codex.sh
           bash tests/webhook.sh
+          bash tests/format.sh
