@@ -361,7 +361,7 @@ Any `CODEX_NOTIFY_*` or `CODEX_SILENT` variable can be set. The file is sourced 
 
 ## License
 
-MIT. See `LICENSE`.
+AGPL-3.0-only. See `LICENSE`. Releases up to and including v1.1.0 were published under the MIT licence.
 
 ## Uninstall
 
